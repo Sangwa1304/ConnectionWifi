@@ -11,9 +11,9 @@ namespace WindowsWifiWpf;
 public partial class MainWindow : Window
 {
     
-    private readonly WifiAwareService _wifiService = new();
+    private readonly WifiDirectService _wifiService = new();
     private readonly FileTransferService _transferService = new();
-    private WifiAwarePeer? _selectedPeer;
+    private WifiDirectPeer? _selectedPeer;
     private FileTransferEndpoint? _remoteEndpoint;
     private CancellationTokenSource? _transferCancellation;
 
