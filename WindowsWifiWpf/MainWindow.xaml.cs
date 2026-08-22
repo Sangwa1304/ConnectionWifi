@@ -26,7 +26,7 @@ public partial class MainWindow : Window
         _wifiService.PeerRemoved += WifiService_PeerRemoved;
         _wifiService.InvitationReceived += WifiService_InvitationReceived;
         _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
-        PeersList.SelectionChanged += (_, _) => _selectedPeer = PeersList.SelectedItem as WifiAwarePeer;
+        PeersList.SelectionChanged += (_, _) => _selectedPeer = PeersList.SelectedItem as WifiDirectPeer;
     }
 
     private async void InitializeButton_Click(object sender, RoutedEventArgs e)
@@ -102,18 +102,18 @@ public partial class MainWindow : Window
         catch (Exception ex) { MessageText.Text = $"Échec du transfert : {ex.Message}"; }
     }
 
-    private async void WifiService_ConnectionEstablished(object? sender, WifiAwareConnectionEventArgs e)
+    private async void WifiService_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e)
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(new Action(async () => await ConfigureTransferEndpointAsync(e)));
+            await Dispatcher.BeginInvoke(new Action(async () => await ConfigureTransferEndpointAsync(e)));
             return;
         }
 
         await ConfigureTransferEndpointAsync(e);
     }
 
-    private async Task ConfigureTransferEndpointAsync(WifiAwareConnectionEventArgs e)
+    private async Task ConfigureTransferEndpointAsync(WifiDirectConnectionEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(e.LocalIPv4) || string.IsNullOrWhiteSpace(e.RemoteIPv4))
         {
@@ -131,23 +131,24 @@ public partial class MainWindow : Window
         catch (Exception ex) { MessageText.Text = $"Impossible de démarrer le partage : {ex.Message}"; }
     }
 
-    private void WifiService_StatusChanged(object? sender, WifiAwareStatus e) => Dispatcher.Invoke(() => StatusText.Text = e.ToString());
-    private void WifiService_PeerDiscovered(object? sender, WifiAwarePeerEventArgs e) => Dispatcher.Invoke(() => PeersList.Items.Add(e.Peer));
-    private void WifiService_PeerUpdated(object? sender, WifiAwarePeerEventArgs e) => Dispatcher.Invoke(() => RefreshPeer(e.Peer));
-    private void WifiService_PeerRemoved(object? sender, WifiAwarePeerEventArgs e) => Dispatcher.Invoke(() => RemovePeer(e.Peer));
+    private void WifiService_StatusChanged(object? sender, WifiDirectStatus e)
+     => Dispatcher.Invoke(() => StatusText.Text = e.ToString());
+    private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) => Dispatcher.Invoke(() => PeersList.Items.Add(e.Peer));
+    private void WifiService_PeerUpdated(object? sender, WifiDirectPeerEventArgs e) => Dispatcher.Invoke(() => RefreshPeer(e.Peer));
+    private void WifiService_PeerRemoved(object? sender, WifiDirectPeerEventArgs e) => Dispatcher.Invoke(() => RemovePeer(e.Peer));
 
-    private async void WifiService_InvitationReceived(object? sender, WifiAwareInvitationEventArgs e)
+    private async void WifiService_InvitationReceived(object? sender, WifiDirectInvitationEventArgs e)
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(new Action(async () => await HandleInvitationAsync(e)));
+            await Dispatcher.BeginInvoke(new Action(async () => await HandleInvitationAsync(e)));
             return;
         }
 
         await HandleInvitationAsync(e);
     }
 
-    private async Task HandleInvitationAsync(WifiAwareInvitationEventArgs invitation)
+    private async Task HandleInvitationAsync(WifiDirectInvitationEventArgs invitation)
     {
         var result = MessageBox.Show(
             this,
@@ -175,17 +176,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RefreshPeer(WifiAwarePeer peer)
+    private void RefreshPeer(WifiDirectPeer peer)
     {
         var index = Enumerable.Range(0, PeersList.Items.Count)
-            .FirstOrDefault(i => (PeersList.Items[i] as WifiAwarePeer)?.Id == peer.Id, -1);
+            .FirstOrDefault(i => (PeersList.Items[i] as WifiDirectPeer)?.Id == peer.Id, -1);
         if (index >= 0) PeersList.Items[index] = peer;
         else PeersList.Items.Add(peer);
     }
 
-    private void RemovePeer(WifiAwarePeer peer)
+    private void RemovePeer(WifiDirectPeer peer)
     {
-        var item = PeersList.Items.Cast<WifiAwarePeer>().FirstOrDefault(candidate => candidate.Id == peer.Id);
+        var item = PeersList.Items.Cast<WifiDirectPeer>().FirstOrDefault(candidate => candidate.Id == peer.Id);
         if (item is not null) PeersList.Items.Remove(item);
         if (_selectedPeer?.Id == peer.Id) _selectedPeer = null;
     }
