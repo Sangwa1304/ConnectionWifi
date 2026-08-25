@@ -18,7 +18,7 @@ public class FileTransferService : IFileTransferService
     public FileTransferEndpoint? LocalEndpoint { get; private set; } 
 
     public async Task<FileTransferEndpoint> StartAsync(string localAddress, string storageDirectory, string? sessionToken = null, CancellationToken cancellationToken = default) 
-    { 
+    {
         await StopAsync(cancellationToken); 
 
         _storageDirectory = storageDirectory ?? throw new ArgumentNullException(nameof(storageDirectory)); 
@@ -83,7 +83,7 @@ public class FileTransferService : IFileTransferService
             } 
 
             if (request.HttpMethod == "POST" || request.HttpMethod == "PUT") 
-            { 
+            {
                 var fileName = request.Headers["X-File-Name"]; 
                 if (string.IsNullOrEmpty(fileName)) 
                 { 

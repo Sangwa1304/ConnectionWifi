@@ -7,7 +7,8 @@ using WindowsWifiLibrary.Models;
 namespace WindowsWifiLibrary.Services 
 { 
     public class WindowsWifiDirectService : IWifiDirectService 
-    { 
+    {
+         
         private WiFiDirectAdvertisementPublisher? _publisher; 
         private WiFiDirectConnectionListener? _listener; 
         private DeviceWatcher? _deviceWatcher; 
@@ -16,15 +17,15 @@ namespace WindowsWifiLibrary.Services
         private readonly ConcurrentDictionary<string, WiFiDirectConnectionRequest> 
 _pendingInvitations = new(); 
  
-        public WifiDirectStatus CurrentStatus { get; private set; } = WifiDirectStatus.Idle; 
-        public bool IsHardwareSupported { get; private set; } 
- 
+        public WifiDirectStatus CurrentStatus { get; private set; } = WifiDirectStatus.Actif; 
+        public bool IsHardwareSupported { get; private set; }
+        public bool IsReady{get; private set; } = false;
         public event EventHandler<WifiDirectStatusEventArgs>? StatusChanged; 
         public event EventHandler<WifiDirectPeerEventArgs>? PeerDiscovered; 
         public event EventHandler<WifiDirectPeerEventArgs>? PeerUpdated; 
         public event EventHandler<WifiDirectPeerEventArgs>? PeerRemoved; 
         public event EventHandler<WifiDirectInvitationEventArgs>? InvitationReceived; 
-        public event EventHandler<WifiDirectConnectionEventArgs>? ConnectionEstablished; 
+        public event EventHandler<WifiDirectConnectionEventArgs>? ConnectionEstablished;
         public event EventHandler<WifiDirectConnectionEventArgs>? ConnectionClosed; 
         public event EventHandler<WifiDirectErrorEventArgs>? Error; 
  
@@ -34,17 +35,17 @@ _pendingInvitations = new();
             { 
                 var deviceSelector = WiFiDirectDevice.GetDeviceSelector(); 
                 var devices = await DeviceInformation.FindAllAsync(deviceSelector); 
-                IsHardwareSupported = devices != null; 
-                UpdateStatus(WifiDirectStatus.Idle); 
-                return IsHardwareSupported; 
+                IsHardwareSupported = devices != null;
+                UpdateStatus(WifiDirectStatus.Actif);
+                return IsHardwareSupported;
             } 
             catch (Exception ex) 
-            { 
+            {
                 ReportError($"Erreur d'initialisation : {ex.Message}"); 
                 IsHardwareSupported = false; 
                 return false; 
             } 
-        } 
+        }
  
         public Task StartPublishingAsync(string serviceName, string deviceName) 
         { 
@@ -53,8 +54,7 @@ _pendingInvitations = new();
                 StopPublisher(); 
  
                 _publisher = new WiFiDirectAdvertisementPublisher(); 
-                _publisher.Advertisement.ListenStateDiscoverability = 
-WiFiDirectAdvertisementListenStateDiscoverability.Normal; 
+                _publisher.Advertisement.ListenStateDiscoverability = WiFiDirectAdvertisementListenStateDiscoverability.Normal; 
                 _publisher.Advertisement.IsAutonomousGroupOwnerEnabled = true; 
  
                 _listener = new WiFiDirectConnectionListener(); 
@@ -71,10 +71,10 @@ WiFiDirectAdvertisementListenStateDiscoverability.Normal;
             { 
                 StopWatcher(); 
  
-                string deviceSelector = WiFiDirectDevice.GetDeviceSelector(); 
-                _deviceWatcher = DeviceInformation.CreateWatcher(deviceSelector); 
- 
-                _deviceWatcher.Added += OnDeviceAdded; 
+                string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint); 
+                _deviceWatcher =DeviceInformation.CreateWatcher(deviceSelector);
+                
+                _deviceWatcher.Added += OnDeviceAdded;
                 _deviceWatcher.Updated += OnDeviceUpdated; 
                 _deviceWatcher.Removed += OnDeviceRemoved; 
  
@@ -83,8 +83,7 @@ WiFiDirectAdvertisementListenStateDiscoverability.Normal;
             }); 
         } 
  
-        public async Task StartPublisherSubscribingAsync(string serviceName, string 
-deviceName) 
+        public async Task StartPublisherSubscribingAsync(string serviceName, string deviceName) 
         { 
             await StartPublishingAsync(serviceName, deviceName); 
             await StartSubscribingAsync(serviceName); 
@@ -92,7 +91,7 @@ deviceName)
  
         public async Task ConnectToPeerAsync(WifiDirectPeer peer) 
         { 
-            try 
+            try
             { 
                 WiFiDirectDevice wfdDevice = await WiFiDirectDevice.FromIdAsync(peer.Id); 
                 if (wfdDevice != null) 
@@ -197,7 +196,7 @@ string.Empty;
                 sender.Dispose(); 
  
                 ConnectionClosed?.Invoke(this, new WifiDirectConnectionEventArgs()); 
-                UpdateStatus(WifiDirectStatus.Idle); 
+                UpdateStatus(WifiDirectStatus.Actif); 
             } 
         } 
  
@@ -232,20 +231,20 @@ string.Empty;
             StopWatcher(); 
              
             foreach (var device in _connectedDevices.ToList()) 
-            { 
-                device.Dispose(); 
-            } 
+            {
+                device.Dispose();
+            }
             _connectedDevices.Clear(); 
             _pendingInvitations.Clear(); 
  
-            UpdateStatus(WifiDirectStatus.Idle); 
+            UpdateStatus(WifiDirectStatus.Actif); 
         } 
  
         private void StopPublisher() 
         { 
             if (_publisher != null) 
             { 
-                _publisher.Stop(); 
+                _publisher?.Stop(); 
                 _publisher = null; 
             } 
             if (_listener != null) 
@@ -255,15 +254,15 @@ string.Empty;
             } 
         } 
  
-        private void StopWatcher() 
-        { 
+        private void StopWatcher()
+        {
             if (_deviceWatcher != null) 
             { 
                 _deviceWatcher.Added -= OnDeviceAdded; 
                 _deviceWatcher.Updated -= OnDeviceUpdated; 
                 _deviceWatcher.Removed -= OnDeviceRemoved; 
-                _deviceWatcher.Stop(); 
-                _deviceWatcher = null; 
+                _deviceWatcher.Stop();
+                _deviceWatcher = null;
             } 
         } 
  
@@ -271,14 +270,17 @@ string.Empty;
         { 
             CurrentStatus = newStatus; 
             StatusChanged?.Invoke(this, new WifiDirectStatusEventArgs { Status = newStatus }); 
-        } 
+        }
  
         private void ReportError(string message) 
         { 
             UpdateStatus(WifiDirectStatus.Error); 
             Error?.Invoke(this, new WifiDirectErrorEventArgs { Message = message }); 
-        } 
- 
-        public void Dispose() => Stop(); 
+        }
+
+        public void Dispose()
+        {
+            Stop();
+        }
     }
 }

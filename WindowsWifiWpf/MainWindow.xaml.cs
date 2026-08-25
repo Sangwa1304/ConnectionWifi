@@ -1,19 +1,9 @@
-<<<<<<< Updated upstream
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using System.Windows;
-using WindowsWifiLibrary.Wifi;
-=======
-﻿using Microsoft.Win32; 
-using System; 
-using System.Linq; 
-using System.Threading; 
-using System.Threading.Tasks; 
-using System.Windows; 
-using WindowsWifiLibrary.Interfaces; 
-using WindowsWifiLibrary.Models; 
-using WindowsWifiLibrary.Services; 
->>>>>>> Stashed changes
-using WindowsWifiWpf.Transfer;
+using System.Windows.Controls;
+using System.Windows.Media;
+using WindowsWifiLibrary.Models;
+using WindowsWifiLibrary.Services;
 using WindowsWifiWpf.Transfer.Models;
 using WindowsWifiWpf.Transfer.Services;
 
@@ -25,68 +15,65 @@ namespace WindowsWifiWpf;
 /// </summary>
 public partial class MainWindow : Window
 {
-    
-    private readonly WifiDirectService _wifiService = new();
-    private readonly FileTransferService _transferService = new();
-    private WifiDirectPeer? _selectedPeer;
-    private FileTransferEndpoint? _remoteEndpoint;
-    private CancellationTokenSource? _transferCancellation;
-=======
-public partial class MainWindow : Window 
-{ 
-    private readonly WindowsWifiDirectService _wifiService = new(); 
-    private readonly FileTransferService _transferService = new(); 
-    private WifiDirectPeer? _selectedPeer; 
-    private FileTransferEndpoint? _remoteEndpoint; 
-    private CancellationTokenSource? _transferCancellation; 
->>>>>>> Stashed changes
+    public MainWindow()
+    {
+        InitializeComponent();
 
-    public MainWindow() 
-    { 
-        InitializeComponent(); 
-        _wifiService.StatusChanged += WifiService_StatusChanged; 
-        _wifiService.PeerDiscovered += WifiService_PeerDiscovered; 
-        _wifiService.PeerUpdated += WifiService_PeerUpdated; 
-        _wifiService.PeerRemoved += WifiService_PeerRemoved; 
-        _wifiService.InvitationReceived += WifiService_InvitationReceived; 
-        _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished; 
-        PeersList.SelectionChanged += (_, _) => _selectedPeer = PeersList.SelectedItem as WifiDirectPeer; 
+        _ = Task.Run(() =>
+        {
+            _wifiService = new();
+            _transferService = new();
+
+            _wifiService.StatusChanged += WifiService_StatusChanged;
+            _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
+            _wifiService.PeerUpdated += WifiService_PeerUpdated;
+            _wifiService.PeerRemoved += WifiService_PeerRemoved;
+            _wifiService.InvitationReceived += WifiService_InvitationReceived;
+            _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
+            _wifiService.ConnectionClosed += WifiService_ConnectionClosed;
+        });
+        PeersList.SelectionChanged += Selection_actived ;// += (_, _) => _selectedPeer = PeersList.SelectedItem as WifiDirectPeer; 
+    
     }
 
-    private async void InitializeButton_Click(object sender, RoutedEventArgs e) 
-    { 
-        await RunUiOperationAsync(async () => 
-        { 
-            var ready = await _wifiService.InitializeAsync(); 
-            MessageText.Text = ready ? "Wi-Fi Direct est disponible." : "Wi-Fi Direct n'est pasdisponible."; 
-        }); 
-    } 
+    private void Selection_actived(object sender, SelectionChangedEventArgs e) => _selectedPeer = PeersList.SelectedItem as WifiDirectPeer;
 
-    private async void PublishButton_Click(object sender, RoutedEventArgs e) 
-    { 
-        await RunUiOperationAsync(() => _wifiService.StartPublishingAsync("ConnectionWifi", Environment.MachineName)); 
-    } 
+    private WindowsWifiDirectService _wifiService; 
+    private  FileTransferService _transferService;
 
-    private async void SubscribeButton_Click(object sender, RoutedEventArgs e) 
-    { 
-        await RunUiOperationAsync(() => _wifiService.StartSubscribingAsync("ConnectionWifi")); 
-    } 
+    private WifiDirectPeer? _selectedPeer;
+    private FileTransferEndpoint? _remoteEndpoint; 
+    private CancellationTokenSource? _transferCancellation;
+    private TcpTransferService _tcpService;
+
+    private async void StartButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RunUiOperationAsync(() => _wifiService?.StartPublisherSubscribingAsync("ConnectionWifi", Environment.MachineName));
+        
+    }
+
+    private void Messager(Combo message)
+    {
+        MessageText.Text = message.Message;
+        StatusText.Text = message.Statut(StatusText.Text);
+    }
 
     private void StopButton_Click(object sender, RoutedEventArgs e) 
     { 
+        PeersList.Items.Clear();
         _transferCancellation?.Cancel(); 
-        _wifiService.Stop(); 
-        _ = _transferService.StopAsync(); 
+        _wifiService?.Stop();
+        _ = _transferService?.StopAsync(); 
         MessageText.Text = "Services arrêtés."; 
     } 
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e) 
     { 
         if (_selectedPeer is null) 
-        { 
+        {
             MessageText.Text = "Sélectionnez un appareil."; 
-            return; 
-        } 
+            return;
+        }
         await RunUiOperationAsync(() => _wifiService.ConnectToPeerAsync(_selectedPeer)); 
     } 
 
@@ -129,38 +116,26 @@ public partial class MainWindow : Window
     { 
         if (!Dispatcher.CheckAccess()) 
         { 
-            await Dispatcher.BeginInvoke(new Action(async () => await ConfigureTransferEndpointAsync(e))); 
+            await Dispatcher.BeginInvoke(new Action(async () => {await ConfigureTransferEndpointAsync(e);})); 
             return; 
-        } 
-
-        await ConfigureTransferEndpointAsync(e); 
-    } 
-
-<<<<<<< Updated upstream
-    private async Task ConfigureTransferEndpointAsync(WifiDirectConnectionEventArgs e)
-    {
-        if (string.IsNullOrWhiteSpace(e.LocalIPv4) || string.IsNullOrWhiteSpace(e.RemoteIPv4))
-        {
-            MessageText.Text = "Connexion établie, mais aucune adresse IPv4 exploitable n'a été trouvée.";
-            return;
         }
-
-        try
+        else
         {
-            var storage = ExpandPath(StoragePathTextBox.Text);
-            var endpoint = await _transferService.StartAsync(e.LocalIPv4, storage, e.SessionId);
-            _remoteEndpoint = new FileTransferEndpoint(new Uri($"http://{e.RemoteIPv4}:{FileTransferService.DefaultPort}/"), e.SessionId);
-            MessageText.Text = $"Partage prêt avec {e.RemoteIPv4}.";
+            await ConfigureTransferEndpointAsync(e); 
         }
-        catch (Exception ex) { MessageText.Text = $"Impossible de démarrer le partage : {ex.Message}"; }
     }
 
-    private void WifiService_StatusChanged(object? sender, WifiDirectStatus e)
-     => Dispatcher.Invoke(() => StatusText.Text = e.ToString());
-    private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) => Dispatcher.Invoke(() => PeersList.Items.Add(e.Peer));
-    private void WifiService_PeerUpdated(object? sender, WifiDirectPeerEventArgs e) => Dispatcher.Invoke(() => RefreshPeer(e.Peer));
-    private void WifiService_PeerRemoved(object? sender, WifiDirectPeerEventArgs e) => Dispatcher.Invoke(() => RemovePeer(e.Peer));
-=======
+    
+
+    private async void WifiService_ConnectionClosed(object? sender, WifiDirectConnectionEventArgs e)
+    {
+        if (!Dispatcher.CheckAccess()) 
+        { 
+            await Dispatcher.BeginInvoke(new Action(async () => {await ConfigureTransferEndpointAsync(e);WifiBorder.Visibility = Visibility.Visible;TransfertBorder.Visibility = Visibility.Collapsed;})); 
+            return; 
+        } 
+    }
+
     private async Task ConfigureTransferEndpointAsync(WifiDirectConnectionEventArgs e) 
     { 
         if (string.IsNullOrWhiteSpace(e.LocalIpAddress) || string.IsNullOrWhiteSpace(e.RemoteIpAddress)) 
@@ -171,9 +146,13 @@ public partial class MainWindow : Window
 
         try 
         { 
-            var storage = ExpandPath(StoragePathTextBox.Text); 
-            await _transferService.StartAsync(e.LocalIpAddress, storage); 
-            _remoteEndpoint = new FileTransferEndpoint(new Uri($"http://{e.RemoteIpAddress}:{FileTransferService.DefaultPort}/")); 
+            var storage = ExpandPath(StoragePathTextBox.Text);
+            //await _tcpService.StartAsync(storage);
+        
+            await _transferService.StartAsync(e.LocalIpAddress, storage);
+            _remoteEndpoint = new FileTransferEndpoint(new Uri($"http://{e.RemoteIpAddress}:{FileTransferService.DefaultPort}/"));
+            TransfertBorder.Visibility = Visibility.Visible;
+            WifiBorder.Visibility = Visibility.Collapsed;
             MessageText.Text = $"Partage prêt avec {e.RemoteIpAddress}."; 
         } 
         catch (Exception ex) { MessageText.Text = $"Impossible de démarrer le partage : {ex.Message}"; } 
@@ -181,7 +160,7 @@ public partial class MainWindow : Window
 
     private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) 
         => Dispatcher.Invoke(() => StatusText.Text = e.Status.ToString()); 
-     
+    
     private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e)  
         => Dispatcher.Invoke(() => PeersList.Items.Add(e.Peer)); 
      
@@ -265,7 +244,7 @@ public partial class MainWindow : Window
 
     private static string ExpandPath(string path) => Environment.ExpandEnvironmentVariables(path); 
     private static string FormatBytes(long bytes) => bytes switch 
-    { 
+    {
         >= 1024 * 1024 * 1024 => $"{bytes / 1024d / 1024d / 1024d:0.0} Go", 
         >= 1024 * 1024 => $"{bytes / 1024d / 1024d:0.0} Mo", 
         >= 1024 => $"{bytes / 1024d:0.0} Ko", 
@@ -280,4 +259,16 @@ public partial class MainWindow : Window
         _wifiService.Dispose(); 
         base.OnClosed(e); 
     } 
-} 
+}
+
+internal class Combo(string message, string? status = null,Brush? color = null )
+{
+    public string Message { get; } = message;
+    private string? _Status = status;
+    public Brush Elipse = color?? Brushes.White;
+
+    internal string Statut(string status)
+    {
+        return _Status?? status;
+    }
+}

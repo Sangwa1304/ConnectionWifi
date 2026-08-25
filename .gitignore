@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+#cache for user
+.cache
+
 # dotenv files
 .env
 

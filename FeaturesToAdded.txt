@@ -1,0 +1,26 @@
+un Stackpanel pour afficher les appareils decouverts, plutot qu'une listbox dans WindowsWifiWpf\MainWindow.xaml.cs
+un bouton attacher à chaque panel au lieu de la selection puis du bouton "se connecte à l'appareil";
+Permettre le glisse-depose 
+
+nouvelle façon d'execution:
+
+    0 --> [Point d'entrer (service worker background avec icon dans la barre des icones cachés , publisher off, listener off, watcher off  ), clique sur l'icone ou app ] NB : Service background reserver aux premuims ---> 1
+    
+    cas echeans 1-->(mode d'ouverture)--->2 :
+        1 --> [ouvertir de la pop bulle : declenche le publisher et listener, un espace glisse-depose et un bouton pour le brownser, la mise a jour du bouton ou glisse-depose declenche le watcher prepares les appareils a proximite en publisher (cas utiles pour recevoir de demandes ou envoyer des fichiers sans app ouvert)] NB: pop bulle reserver aux membres premuim++ et sans  le glisse depose pour le Premuim simple ---> 2
+        1 --> [ouvertir de l'app : declenche le publisher et listener, avec glisse-depose et un bouton pour open le brownser, comme d'habitude l'interaction avec le bouton ou glisse-depose declenche le watcher ] NB : glisse-depose reserver aux premuims et plus ---> 2
+    2 -->[Apres selection de l'objet a transferer, place a la selection de l'appareil a proximite qui est en app ou en pop bullle ]---> 3
+    3 -->[Envoi de la demande d'appairage, l'appareil qui recois interoge l'utilisateur pour le premier appairage sinon accepter ] ---> 4
+    4 -->[ouvrir un port tcp pour envoyer les metadonnees sur les elements a recevoirs pour informer à l'utilisateur les donnes qu'il recois, si accepter ou parametre auto reception est activé, lancer le serveur et les processus d'envoi reception sinon fermer le port et revenir au point 3 --->4 avec des interrogations à l'utilisateur envoyeur pour cancel ou retry ] NB: Les metadonnees seront aussi utiliser pour confirmer l'envoi reception (le formatage en un json d'un type reference est necessaire) ---> 5
+
+    cas echeans 5-->(type des fichiers a recevoir du serveur ou à envoyer au client)--->6 NB (pour que le serveur, il faut imperative une requete http contenant le fichier ou dossier que le client est pret a recevoir ):
+
+        5 --> [si c'est un fichier, ouvrir le stream est start le write] ---> 6
+        5 --> [si c'est un dossier, prepare le dossier dans le dossier de reception et demander les metadonnes des elements internes pour initialiser les transferer] ---> 6
+        NB: Avec ce proccedé meme si on envoi 2 dossiers en plus de fichiers, tous seront bien traiter.
+
+    NB : l'envoi des dossiers est reserver aux users premuim, l'envoi de plus de 1.5 Go est aussi reserve.
+    6 --> [Apres fins de transferer attendre 5 secondes de mort et tout disposer et revenir au point 1 ---> 2, a moins que le parametre ConservedConnection soit activer ] NB : parametre reserver aux premuim donc le pop bulle sera actif avec bouton pour close ---> 7
+    7 --> [a la fermeture de l'app, revenir au point 0 ---> 1 avec le service background pour premuim seulement] ---> 8
+    
+    White by Glory San
