@@ -20,49 +20,57 @@ namespace WindowsWifiWpf
         private CancellationTokenSource? _cts;
         private CancellationTokenSource? _ctsInvitation;
         private WindowsWifiDirectService _wifiService;
+        public event EventHandler<WifiDirectConnectionEventArgs>? Sended;
         private readonly List<WifiDirectPeer> Peers = [];
-        public ObservableCollection<PeerDevice> DiscoveredDevices { get; set; } 
+        public ObservableCollection<WifiDirectPeer> DiscoveredDevices { get; set; }
+        public string LocalIp { get; private set; }
+        public string RemoteIp { get; private set; }
+        public WifiDirectPeer? Save { get; private set; }
+
         private readonly List<string> _pendingTransferPaths = [];
  
         // Remplacer par l'IP locale réelle générée par ta bibliothèque Wi-Fi Direct 
-        private const string LocalIp = "127.0.0.1";
+        //private const string LocalIp = "127.0.0.1";
         private const int LocalPort = 5050;
  
         public MainWindow()
         {
             InitializeComponent();
-            
-            _wifiService = new();
-            _wifiService.InitializeAsync().Wait();
 
-            //_wifiService.StatusChanged += WifiService_StatusChanged;
+            _wifiService = new();
+            _transferService = new();
+            _wifiService.InitializeAsync().Wait();
+            Init();
+
+            DiscoveredDevices = [];
+            DevicesItemsControl.ItemsSource = DiscoveredDevices;
+
+            if (!_wifiService.IsHardwareSupported)
+            {
+                _wifiService.Stop();
+                _wifiService = null;
+                _transferService = null;
+                DisableFeatures();
+                return;
+            }
+            _wifiService.StartPublishingAsync().Wait();
+
+            // Mock pour tester l'UI
+            DiscoveredDevices.Add(new WifiDirectPeer { Name = "Glory-Phone" });
+        }
+
+        private bool Init()
+        {
+            if(_wifiService == null || _transferService ==null ) return false;
+            _wifiService.StatusChanged += WifiService_StatusChanged;
             _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
             _wifiService.PeerUpdated += WifiService_PeerUpdated;
             _wifiService.PeerRemoved += WifiService_PeerRemoved;
             _wifiService.InvitationReceived += WifiService_InvitationReceived;
             _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
             _wifiService.ConnectionClosed += WifiService_ConnectionClosed;
-            
-            
-            DiscoveredDevices = [];
-            DevicesItemsControl.ItemsSource = DiscoveredDevices; 
-             
-            _transferService.IncomingTransferRequested += OnIncomingTransferRequested; 
-             
-            // Démarrage du serveur en arrière-plan 
-            // _ = _transferService.StartListeningAsync(LocalIp, LocalPort, CancellationToken.None);
-            if(!_wifiService.IsHardwareSupported)
-            {
-                _wifiService.Stop();
-                _wifiService = null;
-                DisableFeatures();
-                return;
-            }
-            _transferService = new();
-            _wifiService.StartPublishingAsync().Wait();
-
-            // Mock pour tester l'UI
-            DiscoveredDevices.Add(new PeerDevice { DeviceName = "Glory-Phone", IpAddress = "192.168.1.15", CurrentMode = DeviceOperatingMode.PopBubble }); 
+            _transferService.IncomingTransferRequested += OnIncomingTransferRequested;
+            return true;
         }
 
         private void DisableFeatures()
@@ -76,19 +84,20 @@ namespace WindowsWifiWpf
            WindNormal.Visibility = Visibility.Collapsed;
         }
             
-        private void Retry_Button()
+        private void RetryPage()
         {
-           _wifiService = new();
-           
+            _wifiService = new();
             if(!_wifiService.IsHardwareSupported)
             {   
                 _wifiService.Stop();
                 _wifiService = null;
+                _transferService = null;
                 DisableFeatures();
                 return;
             }
             EnabledFeatures();
             _transferService = new();
+            Init();
             _wifiService.StartPublishingAsync().Wait();
             
         }
@@ -118,22 +127,26 @@ namespace WindowsWifiWpf
             var dialog = new OpenFileDialog{ CheckFileExists = true, Multiselect = true,Title = "Select File(s) or Folder(s) ", DefaultDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)}; 
             if (dialog.ShowDialog(this) == true)  AddToSender(dialog.FileNames);
         }
+        private void Retry_Button (object sender, RoutedEventArgs e) 
+        { 
+            RetryPage();
+        }
+
         private async void BtnConnectAndSend_Click(object sender, RoutedEventArgs e) 
         { 
             
-            if (sender is FrameworkElement element && element.Tag is PeerDevice targetDevice) 
+            if (sender is FrameworkElement element && element.Tag is WifiDirectPeer targetDevice) 
             {
                 if (_pendingTransferPaths.Count == 0) 
                 { 
                     MessageBox.Show("Veuillez d'abord glisser-déposer des éléments."); 
-                    return; 
+                    return;
                 } 
  
                 try
                 {
                     ProgressText.Text = "Demande de connection en cours...";
                     _ctsInvitation = new();
-                    await WaitConnectionEstablishAsync(targetDevice);
                 }
                 catch (Exception ex)
                 {
@@ -142,13 +155,28 @@ namespace WindowsWifiWpf
             } 
         }
 
-        private async Task WaitConnectionEstablishAsync(PeerDevice targetDevice)
+        private async void WaitConnectionEstablish(object? sender, WifiDirectConnectionEventArgs e)
         {
-            await StartSendAsync(targetDevice);
+            Sended -= WaitConnectionEstablish;
+            if(Save != null && LocalIp != null)
+            {
+                await StartSendAsync(new PeerDevice {Id = Save.Id,Name = Save.Name,IpAddress=RemoteIp,Port = LocalPort});
+                Save = null;
+            }
+            
         }
 
-        private async Task StartSendAsync(PeerDevice targetDevice, TransferSessionMetadata metadata)
+        private async Task WaitConnectionEstablishAsync(WifiDirectPeer targetDevice)
         {
+            Save = targetDevice;
+            Sended += WaitConnectionEstablish;
+            await _wifiService.ConnectToPeerAsync(targetDevice);
+            //await StartSendAsync(targetDevice);
+        }
+
+        private async Task StartSendAsync(PeerDevice targetDevice)
+        {
+            //PeerDevice targetDevice = new PeerDevice {Id = device.Id,Name = device.Name,IpAddress = }
             ProgressText.Text = "Préparation des métadonnées...";
             var metadata = await _transferService.PrepareMetadataAsync(_pendingTransferPaths, LocalIp, LocalPort);
 
@@ -189,10 +217,15 @@ namespace WindowsWifiWpf
         } 
     private async void WifiService_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e) 
     { 
+        if(SenderMode())
+        {
+           Sended?.Invoke(sender,e);
+        }
         if (!Dispatcher.CheckAccess())
         { 
+            
             await Dispatcher.BeginInvoke(new Action(async () => {await ConfigureTransferEndpointAsync(e);})); 
-            return; 
+            return;
         }
         else
         {
@@ -200,21 +233,33 @@ namespace WindowsWifiWpf
         }
     }
 
-    
+        private bool SenderMode()
+        {
+            return _pendingTransferPaths.Count == 0;
+        }
 
-    private async void WifiService_ConnectionClosed(object? sender, WifiDirectConnectionEventArgs e)
+        private async Task ConfigureTransferEndpointAsync(WifiDirectConnectionEventArgs e)
+        {
+            LocalIp = e.LocalIpAddress;
+            RemoteIp = e.RemoteIpAddress;
+            // Démarrage du serveur en arrière-plan
+            _ = _transferService.StartListeningAsync(LocalIp, LocalPort, CancellationToken.None);
+        }
+
+        private async void WifiService_ConnectionClosed(object? sender, WifiDirectConnectionEventArgs e)
     {
-        if (!Dispatcher.CheckAccess()) 
+        if (!Dispatcher.CheckAccess())
         { 
-            await Dispatcher.BeginInvoke(new Action(async () => {await ConfigureTransferEndpointAsync(e);})); 
-            return; 
+            //_cts
+            LocalIp = null;
+            RemoteIp = null;
         } 
     }
     private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e)
         => Debug.WriteLine(e); //Dispatcher.Invoke(() => StatusText.Text = e.Status.ToString()); 
     
     private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e)  
-        => Dispatcher.Invoke(() =>  DiscoveredDevices.Add(new PeerDevice { DeviceId = e.Peer.Id,DeviceName = e.Peer.Name})); 
+        => Dispatcher.Invoke(() =>  DiscoveredDevices.Add(e.Peer)); 
      
     private void WifiService_PeerUpdated(object? sender, WifiDirectPeerEventArgs e)  
         => Dispatcher.Invoke(() => RefreshPeer(e.Peer)); 
@@ -261,9 +306,9 @@ namespace WindowsWifiWpf
         } 
     } 
 
-    private void RefreshPeer(PeerDevice peer) 
+    private void RefreshPeer(WifiDirectPeer peer) 
     { 
-        PeerDevice[] _value = [.. from _peer in DiscoveredDevices where _peer.DeviceId == peer.DeviceId && _peer.DeviceName == peer.DeviceName select _peer];
+        WifiDirectPeer[] _value = [.. from _peer in DiscoveredDevices where _peer.Id == peer.Id && _peer.Name == peer.Name select _peer];
         
         if(DiscoveredDevices.Contains(_value[0]))
         {
@@ -272,7 +317,7 @@ namespace WindowsWifiWpf
         else DiscoveredDevices.Add(peer); 
     }
 
-    private void RemovePeer(PeerDevice peer) 
+    private void RemovePeer(WifiDirectPeer peer) 
     {
         DiscoveredDevices.Remove(peer);
     }

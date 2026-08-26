@@ -16,10 +16,10 @@ public class FileTransferService : IFileTransferService
     private readonly Dictionary<string, string> _servedFiles = []; // Mappe le RelativePath au FullLocalPath 
 
     public async Task StartListeningAsync(string localIp, int port, CancellationToken cancellationToken) 
-    { 
+    {
         if (_listener != null && _listener.IsListening) return; 
 
-        _listener = new HttpListener(); 
+        _listener = new HttpListener();
         _listener.Prefixes.Add($"http://{localIp}:{port}/"); 
         _listenerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); 
         _listener.Start(); 
@@ -118,7 +118,7 @@ public class FileTransferService : IFileTransferService
     } 
 
     public Task<TransferSessionMetadata> PrepareMetadataAsync(IEnumerable<string> paths, string localIp, int port) 
-    { 
+    {
         var session = new TransferSessionMetadata { SenderIp = localIp, SenderPort = port }; 
         _servedFiles.Clear(); 
 
@@ -164,7 +164,7 @@ public class FileTransferService : IFileTransferService
         using var client = new HttpClient(); 
         var response = await client.PostAsJsonAsync($"http://{targetDevice.IpAddress}:{targetDevice.Port}/api/transfer/request", metadata, cancellationToken); 
         return response.IsSuccessStatusCode; 
-    } 
+    }
 
     public async Task DownloadSessionAsync(TransferSessionMetadata session, string destinationFolder, IProgress<FileTransferProgress> progress, CancellationToken cancellationToken) 
     { 

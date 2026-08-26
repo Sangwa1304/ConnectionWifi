@@ -2,16 +2,22 @@
     x:Class="WindowsWifiWpf.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
     Title="Windows Wi-Fi P2P - Glory San"
+    xmlns:local="clr-namespace:WindowsWifiWpf"
     Width="900"
+    
     Height="650"
     AllowDrop="True"
     Background="#0F172A"
     DragEnter="Window_DragEnter"
     Drop="Window_Drop"
-    Foreground="#F8FAFC">
+    Foreground="#F8FAFC"
+    WindowStartupLocation="CenterScreen" >
 
-    <Grid >
+    <Grid>
         <Grid Margin="20" x:Name="WindNormal" Visibility="Visible">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -83,16 +89,16 @@
                                                 FontSize="16"
                                                 FontWeight="Bold"
                                                 Foreground="White"
-                                                Text="{Binding DeviceName}"/>
-                                            <TextBlock
+                                                Text="{Binding Name}"/>
+                                            <!--TextBlock
                                                 FontSize="13"
                                                 Foreground="#94A3B8"
-                                                Text="{Binding IpAddress}"/>
+                                                Text="{Binding IpAddress}"/-->
                                             <TextBlock
                                                 Margin="0,4,0,0"
                                                 FontSize="12"
                                                 Foreground="#38BDF8"
-                                                Text="{Binding CurrentMode}"/>
+                                                Text="{Binding Id}"/>
                                         </StackPanel>
 
                                         <Button
@@ -126,6 +132,13 @@
                 CornerRadius="8">
                 <StackPanel>
                     <TextBlock
+                        x:Name="MessageText"
+                        Margin="0,0,0,8"
+                        Background="Black"
+                        
+                        Foreground="#CBD5E1"
+                        Text="En attente..."/>
+                    <TextBlock
                         x:Name="ProgressText"
                         Margin="0,0,0,8"
                         Foreground="#CBD5E1"
@@ -143,7 +156,7 @@
         </Grid>
         <Grid x:Name="WindError" Background="transparent" Visibility = "Collapsed">
             <Border Background="Gray">
-                <Button  Click = "Retry_Button" Background="Transparent" Content="retry" FontSize="21" Foreground="Green"/>
+                <Button  Click = "Retry_Button" Background="transparent" Content="retry" FontSize="21" Foreground="Green"/>
                 
             </Border>
         </Grid>
