@@ -1,6 +1,4 @@
-using System; 
- 
-namespace WindowsWifiWpf.Transfer.Models; 
+namespace WindowsWifiLibrary.Core.Models;
 
 public class FileTransferEndpoint 
 { 
@@ -12,12 +10,4 @@ public class FileTransferEndpoint
         Uri = uri ?? throw new ArgumentNullException(nameof(uri)); 
         SessionToken = sessionToken; 
     } 
-} 
-
-public class FileTransferProgress 
-{ 
-    public long BytesTransferred { get; set; } 
-    public long TotalBytes { get; set; } 
-    public double Percentage => TotalBytes > 0 ? (double)BytesTransferred / TotalBytes * 
-100.0 : 0; 
 } 

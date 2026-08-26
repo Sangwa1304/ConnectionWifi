@@ -1,12 +1,6 @@
-using System;
-using System.IO;
 using System.Net;
-using System.Net.Http;
-using System.Threading;
-using System.Threading.Tasks;
-using WindowsWifiWpf.Transfer.Models;
 
-namespace WindowsWifiWpf.Transfer.Models;
+namespace WindowsWifiLibrary.Core.Models;
 
 internal class ProgressStreamContent : HttpContent 
 { 
@@ -30,8 +24,7 @@ internal class ProgressStreamContent : HttpContent
         long totalBytesRead = 0; 
         int bytesRead; 
 
-        while ((bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length, 
-_cancellationToken).ConfigureAwait(false)) > 0) 
+        while ((bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length, _cancellationToken).ConfigureAwait(false)) > 0) 
         { 
             _cancellationToken.ThrowIfCancellationRequested(); 
             await destination.WriteAsync(buffer, 0, bytesRead, _cancellationToken).ConfigureAwait(false); 
@@ -55,4 +48,4 @@ _cancellationToken).ConfigureAwait(false)) > 0)
         length = 0; 
         return false; 
     } 
-} 
+}

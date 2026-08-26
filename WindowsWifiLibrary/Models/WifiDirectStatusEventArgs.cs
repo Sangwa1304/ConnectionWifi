@@ -1,8 +1,7 @@
 
-namespace WindowsWifiLibrary.Models 
-{
-    public class WifiDirectStatusEventArgs : EventArgs  
-    {  
-        public WifiDirectStatus Status { get; set; }  
-    } 
+namespace WindowsWifiLibrary.Models; 
+
+public class WifiDirectStatusEventArgs : EventArgs  
+{  
+    public WifiDirectStatus Status { get; set; }  
 } 

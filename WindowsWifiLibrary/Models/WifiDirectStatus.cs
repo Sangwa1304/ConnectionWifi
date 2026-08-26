@@ -1,5 +1,4 @@
 
-namespace WindowsWifiLibrary.Models 
-{
-    public enum WifiDirectStatus { Actif, Publishing, Subscribing, Connected, Error } 
-} 
+namespace WindowsWifiLibrary.Models; 
+
+public enum WifiDirectStatus { Actif, Publishing, Subscribing, Connected, Error } 
