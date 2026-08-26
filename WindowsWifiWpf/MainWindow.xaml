@@ -27,31 +27,132 @@
 
             <Border
                 Grid.Row="0"
-                Padding="40"
+                Padding="10"
                 Background="#1E293B"
                 BorderBrush="#3B82F6"
                 BorderThickness="2"
                 CornerRadius="12">
                 <StackPanel>
-                    <TextBlock
+                    <Grid>
+                        <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock
                         FontSize="18"
                         FontWeight="SemiBold"
                         Foreground="#94A3B8"
                         HorizontalAlignment="center"
-                        Text="Glissez vos fichiers ou dossiers ici"/>
+                        Text="Glissez vos fichiers ou dossiers ici..."/>
                     <TextBlock
                         x:Name="DropStatusText"
-                        Margin="10"
+                        Margin="0,10,0,5"
+                        Grid.Row = "1"
                         HorizontalAlignment="Center"
                         Foreground="#38BDF8"
                         Text="Aucun élément sélectionné"/>
-                    <Button x:Name="BtBrwonser"
+                    </Grid>
+                    <Grid>
+                        <ScrollViewer
+                                Width="Auto"
+                                Height="Auto"
+                                HorizontalScrollBarVisibility="Disabled"
+                                VerticalScrollBarVisibility="Disabled">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                            
+                                <Button 
+                                    Visibility = "Collapsed"
+                                    Grid.Row="0"
+                                    Background="Transparent"
+                                    Click="Delette_Contents_Click"
+                                    Content="Delette"
+                                    Cursor="Hand"
+                                    Foreground="#FFF70505"
+                                    Tag="{Binding}">
+                                    <Button.Resources>
+                                        <Style TargetType="Border">
+                                            <Setter Property="CornerRadius"
+                                                    Value="8"/>
+                                        </Style>
+                                    </Button.Resources>
+                                </Button>
+                                <ItemsControl x:Name="FilesItemsControl"  Grid.Row="1">
+
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Vertical"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border
+                                                Padding="16"
+                                                Background="#1E293B"
+                                                CornerRadius="10">
+                                                    <Grid >
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                    
+                                                        <StackPanel Grid.Column="0"
+                                                                VerticalAlignment="Center">
+                                                            <TextBlock
+                                                                FontSize="16"
+                                                                FontWeight="Bold"
+                                                                Foreground="White"
+                                                                Text="{Binding Name}"/>
+                                                            <TextBlock
+                                                                FontSize="13"
+                                                                Foreground="#94A3B8"
+                                                                Text="{Binding Sizee}"/>
+                                                            <TextBlock
+                                                                Margin="0,4,0,0"
+                                                                FontSize="12"
+                                                                Foreground="#38BDF8"
+                                                                Text="{Binding Type}"/>
+                                                        </StackPanel>
+
+                                                        <Button
+                                                            Grid.Column="1"
+                                                            Background="Transparent"
+                                                            BorderThickness="0.1"
+                                                            Click="Delette_Content_Click"
+                                                            Content="X"
+                                                            Cursor="Hand"
+                                                            Foreground="#FFF70505"
+                                                            Tag="{Binding}">
+                                                            <Button.Resources>
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="CornerRadius"
+                                                                            Value="8"/>
+                                                                </Style>
+                                                            </Button.Resources>
+                                                        </Button>
+                                                    </Grid>
+                                                
+                                                
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Grid>
+                                
+                        </ScrollViewer>
+                        <Button x:Name="BtBrwonser"
                             Content="Choisir un element"
                             Background="transparent"
                             Cursor = "Hand"
+                            BorderBrush="Transparent"
                             Margin = "0,12,0,0"
                             Click="BrowseButton_Click"
                             Foreground="#38BDF8"/>
+                    </Grid>
+                
                 </StackPanel>
             </Border>
 
