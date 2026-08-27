@@ -56,8 +56,10 @@ public partial class MainWindow : Window
             DisableFeatures();
             return;
         }
-        _wifiService.StartPublishingAsync().Wait();
-
+        _wifiService.StartPublishingAsync();
+        _ctsWatcher = new();
+        
+        _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
         // Mock pour tester l'UI
         DiscoveredDevices.Add(new WifiDirectPeer { Name = "Glory-Phone", TestMode = true});
     }
@@ -101,7 +103,7 @@ public partial class MainWindow : Window
         EnabledFeatures();
         _transferService = new();
         Init();
-        _wifiService.StartPublishingAsync().Wait();
+        _wifiService.StartPublishingAsync();
         
     }
     private void Window_DragEnter(object sender, DragEventArgs e) 
@@ -127,13 +129,20 @@ public partial class MainWindow : Window
         }
         Reload();
         
-        if(_ctsWatcher != null)
+        
+        if(_ctsWatcher != null && !_ctsWatcher.Token.IsCancellationRequested)
         {
-            _ctsWatcher?.Cancel();
+            
         }
-        DiscoveredDevices = [];
-        _ctsWatcher = new();
-        await _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
+        else
+        {
+            /*DiscoveredDevices =[];
+            
+            _ctsWatcher = new();
+        
+            _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
+            */
+        }
     }
 
     private void BrowseButton_Click(object sender, RoutedEventArgs e) 
@@ -148,7 +157,7 @@ public partial class MainWindow : Window
     private async void Delette_Contents_Click(object sender, RoutedEventArgs e) 
     {
         _pendingTransferPaths.Clear();
-        _ctsWatcher?.Cancel();
+        //_ctsWatcher?.Cancel();
         DropStatusText.Text = "";
         DiscoveredDevices = [];
         Reload();
@@ -162,7 +171,7 @@ public partial class MainWindow : Window
             _pendingTransferPaths.Remove(targetFile);
             if(_pendingTransferPaths.Count == 0)
             {
-                _ctsWatcher?.Cancel();
+                //_ctsWatcher?.Cancel();
                 DiscoveredDevices = [];
             }
             Reload();
@@ -191,7 +200,7 @@ public partial class MainWindow : Window
         {
             if (_pendingTransferPaths.Count == 0) 
             { 
-                MessageBox.Show("Veuillez d'abord glisser-déposer des éléments."); 
+                MessageBox.Show($"Veuillez d'abord glisser-déposer des éléments. avant d'envoyer a {targetDevice.Name}"); 
                 return;
             } 
 
@@ -201,7 +210,9 @@ public partial class MainWindow : Window
                 _ctsInvitation = new();
                 if(targetDevice.TestMode){ ProgressText.Text = "Test reçu avec success "; return;}
                 _ctsConction = new CancellationTokenSource();
+                await WaitConnectionEstablishAsync(targetDevice);
                 await _wifiService.ConnectToPeerAsync(targetDevice,_ctsConction.Token);
+                
             }
             catch (Exception ex)
             {
@@ -272,10 +283,7 @@ public partial class MainWindow : Window
     } 
 private async void WifiService_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e) 
 { 
-    if(SenderMode())
-    {
-       Sended?.Invoke(sender,e);
-    }
+    
     if (!Dispatcher.CheckAccess())
     { 
         
@@ -286,11 +294,16 @@ private async void WifiService_ConnectionEstablished(object? sender, WifiDirectC
     {
         await ConfigureTransferEndpointAsync(e); 
     }
+
+    if(Sended != null)
+    {
+       Sended?.Invoke(sender,e);
+    }
 }
 
     private bool SenderMode()
     {
-        return _pendingTransferPaths.Count == 0;
+        return _pendingTransferPaths.Count > 0;
     }
 
     private async Task ConfigureTransferEndpointAsync(WifiDirectConnectionEventArgs e)

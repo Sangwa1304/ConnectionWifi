@@ -47,9 +47,9 @@ _pendingInvitations = new();
         } 
     }
 
-    public Task StartPublishingAsync() 
+    public void StartPublishingAsync() 
     { 
-        return Task.Run(() => 
+        Task.Run(() => 
         { 
             StopPublisher(); 
 
@@ -65,25 +65,22 @@ _pendingInvitations = new();
         });
     } 
 
-    public Task StartSubscribingAsync(CancellationToken token) 
-    { 
-        return Task.Run(() => 
-        { 
-            StopWatcher(); 
+    public void StartSubscribingAsync(CancellationToken token) 
+    {
+        StopWatcher(); 
 
-            string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint); 
-            _deviceWatcher =DeviceInformation.CreateWatcher(deviceSelector);
-            
-            _deviceWatcher.Added += OnDeviceAdded;
-            _deviceWatcher.Updated += OnDeviceUpdated; 
-            _deviceWatcher.Removed += OnDeviceRemoved; 
-            if(token.IsCancellationRequested)
-            {
-                
-            }
-            _deviceWatcher.Start(); 
-            UpdateStatus(WifiDirectStatus.Subscribing); 
-        },token); 
+        string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint); 
+        _deviceWatcher =DeviceInformation.CreateWatcher(deviceSelector);
+        
+        _deviceWatcher.Added += OnDeviceAdded;
+        _deviceWatcher.Updated += OnDeviceUpdated; 
+        _deviceWatcher.Removed += OnDeviceRemoved; 
+        if(token.IsCancellationRequested)
+        {
+            return;
+        }
+        _deviceWatcher.Start(); 
+        UpdateStatus(WifiDirectStatus.Subscribing); 
     } 
     public async Task ConnectToPeerAsync(WifiDirectPeer peer,CancellationToken token) 
     { 
