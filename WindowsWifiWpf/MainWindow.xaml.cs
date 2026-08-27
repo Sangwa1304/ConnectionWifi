@@ -17,9 +17,10 @@ public partial class MainWindow : Window
     private FileTransferService _transferService;
     private CancellationTokenSource? _ctsTransfert;
     private CancellationTokenSource? _ctsWatcher;
-    private CancellationTokenSource? _cts;
     private CancellationTokenSource? _ctsInvitation; 
     private WindowsWifiDirectService _wifiService;
+    private CancellationTokenSource _ctsConction;
+
     public event EventHandler<WifiDirectConnectionEventArgs>? Sended;
     private readonly List<WifiDirectPeer> Peers = [];
     public ObservableCollection<WifiDirectPeer> DiscoveredDevices { get; set; }
@@ -46,7 +47,7 @@ public partial class MainWindow : Window
         DiscoveredDevices = [];
         DevicesItemsControl.ItemsSource = DiscoveredDevices;
         FilesItemsControl.ItemsSource = _pendingTransferPaths;
-
+        
         if (!_wifiService.IsHardwareSupported)
         {
             _wifiService.Stop();
@@ -116,17 +117,23 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AddToSender(string[] files)
+    private async void AddToSender(string[] files)
     {
         _pendingTransferPaths.Clear();
         var r = from f in files where !string.IsNullOrWhiteSpace(f.Trim())&&Path.Exists(f) select new FileI(f);
         foreach (var t in r )
         {
-            _pendingTransferPaths.Add(t);
+            _pendingTransferPaths.Add(t); Debug.WriteLine("salut");
         }
-
-        DropStatusText.Text = $"{_pendingTransferPaths.Count} élément(s) prêt(s). Sélectionnez un appareil en bas.";
-        Task.Run(async() => await _wifiService.StartSubscribingAsync());
+        Reload();
+        
+        if(_ctsWatcher != null)
+        {
+            _ctsWatcher?.Cancel();
+        }
+        DiscoveredDevices = [];
+        _ctsWatcher = new();
+        await _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
     }
 
     private void BrowseButton_Click(object sender, RoutedEventArgs e) 
@@ -141,6 +148,10 @@ public partial class MainWindow : Window
     private async void Delette_Contents_Click(object sender, RoutedEventArgs e) 
     {
         _pendingTransferPaths.Clear();
+        _ctsWatcher?.Cancel();
+        DropStatusText.Text = "";
+        DiscoveredDevices = [];
+        Reload();
         
     }
     private async void Delette_Content_Click(object sender, RoutedEventArgs e) 
@@ -149,11 +160,33 @@ public partial class MainWindow : Window
         if (sender is FrameworkElement element && element.Tag is FileI targetFile) 
         {
             _pendingTransferPaths.Remove(targetFile);
-        } 
+            if(_pendingTransferPaths.Count == 0)
+            {
+                _ctsWatcher?.Cancel();
+                DiscoveredDevices = [];
+            }
+            Reload();
+        }
     }
+
+    private void Reload()
+    {
+        if(_pendingTransferPaths.Count <= 0)
+        {
+            DropStatusText.Text = "Aucun élément sélectionné";
+            cleaner.Visibility = Visibility.Collapsed;
+            glisser.Visibility = BtBrwonser.Visibility = Visibility.Visible;
+        }
+        else 
+        {
+            DropStatusText.Text = $"{_pendingTransferPaths.Count} élément(s) prêt(s). Sélectionnez un appareil en bas.";
+            cleaner.Visibility = Visibility.Visible;
+            glisser.Visibility = BtBrwonser.Visibility = Visibility.Collapsed;
+        }
+    }
+
     private async void BtnConnectAndSend_Click(object sender, RoutedEventArgs e) 
     { 
-        
         if (sender is FrameworkElement element && element.Tag is WifiDirectPeer targetDevice) 
         {
             if (_pendingTransferPaths.Count == 0) 
@@ -167,7 +200,8 @@ public partial class MainWindow : Window
                 ProgressText.Text = "Demande de connection en cours...";
                 _ctsInvitation = new();
                 if(targetDevice.TestMode){ ProgressText.Text = "Test reçu avec success "; return;}
-                await _wifiService.ConnectToPeerAsync(targetDevice);
+                _ctsConction = new CancellationTokenSource();
+                await _wifiService.ConnectToPeerAsync(targetDevice,_ctsConction.Token);
             }
             catch (Exception ex)
             {
@@ -191,7 +225,7 @@ public partial class MainWindow : Window
     {
         Save = targetDevice;
         Sended += WaitConnectionEstablish;
-        await _wifiService.ConnectToPeerAsync(targetDevice);
+        //await _wifiService.ConnectToPeerAsync(targetDevice);
         //await StartSendAsync(targetDevice);
     }
 
@@ -277,7 +311,7 @@ private async void WifiService_ConnectionEstablished(object? sender, WifiDirectC
     } 
 }
 private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e)
-    => Debug.WriteLine(e); //Dispatcher.Invoke(() => StatusText.Text = e.Status.ToString()); 
+    => Debug.WriteLine(e.Status); //Dispatcher.Invoke(() => StatusText.Text = e.Status.ToString()); 
 
 private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e)  
     => Dispatcher.Invoke(() =>  DiscoveredDevices.Add(e.Peer)); 
@@ -314,8 +348,8 @@ private async Task HandleInvitationAsync(WifiDirectInvitationEventArgs invitatio
         { 
             await _wifiService.AcceptInvitationAsync(invitation.Token); 
             MessageText.Text = "Demande acceptée."; 
-        } 
-        else 
+        }
+        else
         { 
             await _wifiService.RejectInvitationAsync(invitation.Token); 
             MessageText.Text = "Demande refusée."; 
@@ -353,7 +387,6 @@ private async Task RunUiOperationAsync(Func<Task> operation)
     { 
         _ctsTransfert?.Cancel();
         _ctsWatcher?.Cancel();
-        _cts?.Cancel();
         await _transferService.StopListeningAsync(); 
         base.OnClosed(e);
     }
@@ -361,12 +394,12 @@ private async Task RunUiOperationAsync(Func<Task> operation)
 
 public class FileI
 {
-    public readonly string PathFile;
-    public readonly string Name;
+    public string PathFile{get;}
+    public string Name{get;}
 
-    public readonly long Size;
+    public long Size{get;}
     public string Sizee {get=>$"{Size} octet"; }
-    public readonly TypeFile Type;
+    public TypeFile Type{get;}
     public static IEnumerable<string> AsEnumerable(IEnumerable<FileI> Enums)
     {
         return from r in Enums select r.PathFile;
@@ -383,7 +416,7 @@ public class FileI
             else Type = TypeFile.File;
              
         }
-        throw new ArgumentException($"{path} does'nt exist ");
+        else throw new ArgumentException($"{path} does'nt exist ");
     }
 }
 

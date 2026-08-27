@@ -20,9 +20,9 @@
     <Grid>
         <Grid Margin="20" x:Name="WindNormal" Visibility="Visible">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="4*"/>
+                <RowDefinition Height="6*"/>
+                <RowDefinition Height="2*"/>
             </Grid.RowDefinitions>
 
             <Border
@@ -32,44 +32,51 @@
                 BorderBrush="#3B82F6"
                 BorderThickness="2"
                 CornerRadius="12">
-                <StackPanel>
                     <Grid>
                         <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="4*"/>
+                            <RowDefinition Height="6*"/>
                         </Grid.RowDefinitions>
-                        <TextBlock
-                        FontSize="18"
-                        FontWeight="SemiBold"
-                        Foreground="#94A3B8"
-                        HorizontalAlignment="center"
-                        Text="Glissez vos fichiers ou dossiers ici..."/>
-                    <TextBlock
-                        x:Name="DropStatusText"
-                        Margin="0,10,0,5"
-                        Grid.Row = "1"
-                        HorizontalAlignment="Center"
-                        Foreground="#38BDF8"
-                        Text="Aucun élément sélectionné"/>
-                    </Grid>
-                    <Grid>
-                        <ScrollViewer
+                        <StackPanel Width="Auto" Grid.Row="0">
+                            <TextBlock x:Name="glisser"
+                            FontSize="18"
+                            FontWeight="SemiBold"
+                            Foreground="#94A3B8"
+                            HorizontalAlignment="center"
+                            Text="Glissez vos fichiers ou dossiers ici..."/>
+                            <Button x:Name="BtBrwonser"
+                                
+                                Content="Clique ici..."
+                                Background="transparent"
+                                Cursor = "Hand"
                                 Width="Auto"
-                                Height="Auto"
-                                HorizontalScrollBarVisibility="Disabled"
-                                VerticalScrollBarVisibility="Disabled">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                            
-                                <Button 
+                                Height = "Auto"
+                                FontSize="18"
+                                FontWeight="SemiBold"
+                                BorderBrush="Transparent"
+                                Margin = "0,-8,0,0"
+                                Click="BrowseButton_Click"
+                                Foreground="#FF5B97B1"/>
+                        
+                            <TextBlock
+                                x:Name="DropStatusText"
+                                Margin = "0,-8,0,0"
+                                HorizontalAlignment="Center"
+                                Foreground="#38BDF8"
+                                    Text="Aucun élément sélectionné"/>
+                        </StackPanel>
+                        <ScrollViewer Grid.Row="1"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Hidden">
+                            <StackPanel>
+                                <Button x:Name="cleaner"
                                     Visibility = "Collapsed"
                                     Grid.Row="0"
                                     Background="Transparent"
                                     Click="Delette_Contents_Click"
-                                    Content="Delette"
+                                    Content="Clean"
+                                    Width="Auto"
+                                    Height = "Auto"
                                     Cursor="Hand"
                                     Foreground="#FFF70505"
                                     Tag="{Binding}">
@@ -80,8 +87,8 @@
                                         </Style>
                                     </Button.Resources>
                                 </Button>
-                                <ItemsControl x:Name="FilesItemsControl"  Grid.Row="1">
-
+                            
+                                <ItemsControl x:Name="FilesItemsControl">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <StackPanel Orientation="Vertical"/>
@@ -93,67 +100,165 @@
                                                 Padding="16"
                                                 Background="#1E293B"
                                                 CornerRadius="10">
-                                                    <Grid >
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*"/>
-                                                            <ColumnDefinition Width="Auto"/>
-                                                        </Grid.ColumnDefinitions>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
                                                     
-                                                        <StackPanel Grid.Column="0"
-                                                                VerticalAlignment="Center">
-                                                            <TextBlock
-                                                                FontSize="16"
-                                                                FontWeight="Bold"
-                                                                Foreground="White"
-                                                                Text="{Binding Name}"/>
-                                                            <TextBlock
-                                                                FontSize="13"
-                                                                Foreground="#94A3B8"
-                                                                Text="{Binding Sizee}"/>
-                                                            <TextBlock
-                                                                Margin="0,4,0,0"
-                                                                FontSize="12"
-                                                                Foreground="#38BDF8"
-                                                                Text="{Binding Type}"/>
-                                                        </StackPanel>
+                                                    <StackPanel Grid.Column="0" 
+                                                            VerticalAlignment="Center">
+                                                        <TextBlock
+                                                            FontSize="16"
+                                                            FontWeight="Bold"
+                                                            Foreground="White"
+                                                            Text="{Binding Name}"/>
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                        
+                                                        <!--TextBlock
+                                                            FontSize="13"
+                                                            Foreground="#94A3B8"
+                                                            Text="{Binding IpAddress}"/-->
+                                                        
+                                                        <TextBlock
+                                                            Margin="4,0,4,0"
+                                                            FontWeight="Bold"
+                                                            FontSize="14"
+                                                            Foreground="#38BDF8"
+                                                            Text="{Binding Type}"/>
+                                                        <TextBlock
+                                                            Margin="4,0,4,0"
+                                                            Grid.Column ="2"
+                                                            FontWeight="Bold"
+                                                            FontSize="14"
+                                                            Foreground="#38BDF8"
+                                                            Text="{Binding Sizee}"/>
+                                                        <TextBlock
+                                                            Margin="4,0,4,0"
+                                                            Grid.Column ="1"
+                                                            FontWeight="Bold"
+                                                            FontSize="14"
+                                                            Foreground="#38BDF8"
+                                                            Text="  :  "/>
+                                                        </Grid>
+                                                    </StackPanel>
 
-                                                        <Button
-                                                            Grid.Column="1"
-                                                            Background="Transparent"
-                                                            BorderThickness="0.1"
-                                                            Click="Delette_Content_Click"
-                                                            Content="X"
-                                                            Cursor="Hand"
-                                                            Foreground="#FFF70505"
-                                                            Tag="{Binding}">
-                                                            <Button.Resources>
-                                                                <Style TargetType="Border">
-                                                                    <Setter Property="CornerRadius"
-                                                                            Value="8"/>
-                                                                </Style>
-                                                            </Button.Resources>
-                                                        </Button>
-                                                    </Grid>
-                                                
-                                                
+                                                    <Button
+                                                        Grid.Column="1"
+                                                        BorderThickness="0.1"
+                                                        Click="Delette_Content_Click"
+                                                        Content="X"
+                                                        FontSize="14"
+                                                        Width="Auto"
+                                                        Height="Auto"
+                                                        Cursor="Hand"
+                                                        Foreground="#FFF70505"
+                                                        Tag="{Binding}">
+                                                        <Button.Resources>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="CornerRadius"
+                                                                        Value="8"/>
+                                                            </Style>
+                                                        </Button.Resources>
+                                                    </Button>
+                                                </Grid>
                                             </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                            </Grid>
-                                
+                            </StackPanel>
                         </ScrollViewer>
-                        <Button x:Name="BtBrwonser"
-                            Content="Choisir un element"
-                            Background="transparent"
-                            Cursor = "Hand"
-                            BorderBrush="Transparent"
-                            Margin = "0,12,0,0"
-                            Click="BrowseButton_Click"
-                            Foreground="#38BDF8"/>
                     </Grid>
-                
-                </StackPanel>
+                    
+                        <!--Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                        
+                            <Button 
+                                Visibility = "Visible"
+                                Grid.Row="0"
+                                Background="Transparent"
+                                Click="Delette_Contents_Click"
+                                Content="Clean"
+                                Width="Auto"
+                                Cursor="Hand"
+                                Foreground="#FFF70505"
+                                Tag="{Binding}">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius"
+                                                Value="8"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                            <ScrollViewer
+                            Grid.Row="1"
+                            HorizontalScrollBarVisibility="Disabled"
+                            VerticalScrollBarVisibility="Hidden">
+                            <ItemsControl x:Name="FilesItemsControl"  Grid.Row="1">
+
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Vertical"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border
+                                            Padding="16"
+                                            Background="#1E293B"
+                                            CornerRadius="10">
+                                            <Grid >
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0"
+                                                        VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        Foreground="White"
+                                                        Text="{Binding Name}"/>
+                                                    <TextBlock
+                                                        Foreground="#94A3B8"
+                                                        Text="{Binding Sizee}"/>
+                                                    <TextBlock
+                                                        Foreground="#38BDF8"
+                                                        Text="{Binding Type}"/>
+                                                </StackPanel>
+
+                                                <Button
+                                                    Grid.Column="1"
+                                                    Background="Transparent"
+                                                    BorderThickness="0.1"
+                                                    Click="Delette_Content_Click"
+                                                    Content="X"
+                                                    Width="Auto"
+                                                    Cursor="Hand"
+                                                    Foreground="#FFF70505"
+                                                    Tag="{Binding}">
+                                                    <Button.Resources>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="CornerRadius"
+                                                                    Value="8"/>
+                                                        </Style>
+                                                    </Button.Resources>
+                                                </Button>
+                                            </Grid>
+                                            
+                                            
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid-->
             </Border>
 
             <Border 
@@ -165,7 +270,7 @@
                 Margin="0,12,0,12">
                 <ScrollViewer 
                         HorizontalScrollBarVisibility="Disabled"
-                        VerticalScrollBarVisibility="Disabled">
+                        VerticalScrollBarVisibility="Hidden">
                     <ItemsControl x:Name="DevicesItemsControl">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -187,7 +292,7 @@
                                         <StackPanel Grid.Column="0"
                                                 VerticalAlignment="Center">
                                             <TextBlock
-                                                FontSize="16"
+                                                FontSize="14"
                                                 FontWeight="Bold"
                                                 Foreground="White"
                                                 Text="{Binding Name}"/>
@@ -197,7 +302,7 @@
                                                 Text="{Binding IpAddress}"/-->
                                             <TextBlock
                                                 Margin="0,4,0,0"
-                                                FontSize="12"
+                                                FontSize="10"
                                                 Foreground="#38BDF8"
                                                 Text="{Binding Id}"/>
                                         </StackPanel>

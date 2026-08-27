@@ -19,9 +19,9 @@ public interface IWifiDirectService : IDisposable
     Task<bool> InitializeAsync(); 
     void Stop(); 
     Task StartPublishingAsync(); 
-    Task StartSubscribingAsync(); 
-    Task StartPublisherSubscribingAsync(); 
-    Task ConnectToPeerAsync(WifiDirectPeer peer); 
+    Task StartSubscribingAsync(CancellationToken token); 
+    Task StartPublisherSubscribingAsync(CancellationToken token); 
+    Task ConnectToPeerAsync(WifiDirectPeer peer,CancellationToken token); 
     Task AcceptInvitationAsync(string token); 
     Task RejectInvitationAsync(string token); 
 } 

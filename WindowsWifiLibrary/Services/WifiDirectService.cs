@@ -59,13 +59,13 @@ _pendingInvitations = new();
 
             _listener = new WiFiDirectConnectionListener(); 
             _listener.ConnectionRequested += OnConnectionRequested; 
-
+            
             _publisher.Start(); 
             UpdateStatus(WifiDirectStatus.Publishing); 
         });
     } 
 
-    public Task StartSubscribingAsync() 
+    public Task StartSubscribingAsync(CancellationToken token) 
     { 
         return Task.Run(() => 
         { 
@@ -77,23 +77,20 @@ _pendingInvitations = new();
             _deviceWatcher.Added += OnDeviceAdded;
             _deviceWatcher.Updated += OnDeviceUpdated; 
             _deviceWatcher.Removed += OnDeviceRemoved; 
-
+            if(token.IsCancellationRequested)
+            {
+                
+            }
             _deviceWatcher.Start(); 
             UpdateStatus(WifiDirectStatus.Subscribing); 
-        }); 
+        },token); 
     } 
-
-    public async Task StartPublisherSubscribingAsync() 
-    { 
-        await StartPublishingAsync(); 
-        await StartSubscribingAsync(); 
-    } 
-
-    public async Task ConnectToPeerAsync(WifiDirectPeer peer) 
+    public async Task ConnectToPeerAsync(WifiDirectPeer peer,CancellationToken token) 
     { 
         try
         { 
-            WiFiDirectDevice wfdDevice = await WiFiDirectDevice.FromIdAsync(peer.Id); 
+            WiFiDirectDevice wfdDevice = await WiFiDirectDevice.FromIdAsync(peer.Id);
+            token.ThrowIfCancellationRequested();
             if (wfdDevice != null) 
             { 
                 HandleSuccessfulConnection(wfdDevice); 
@@ -161,11 +158,11 @@ WiFiDirectConnectionRequestedEventArgs args)
         return Task.CompletedTask; 
     } 
 
-    private void HandleSuccessfulConnection(WiFiDirectDevice wfdDevice) 
+    private void HandleSuccessfulConnection(WiFiDirectDevice wfdDevice, CancellationToken? token = null) 
     { 
-        _connectedDevices.Add(wfdDevice); 
+       
         wfdDevice.ConnectionStatusChanged += OnDeviceConnectionStatusChanged; 
-
+        
         var endpointPairs = wfdDevice.GetConnectionEndpointPairs();
         
         if (endpointPairs.Count > 0) 
@@ -174,7 +171,7 @@ WiFiDirectConnectionRequestedEventArgs args)
             string remoteIp = endpointPairs[0].RemoteHostName?.CanonicalName ?? string.Empty; 
 
             UpdateStatus(WifiDirectStatus.Connected); 
-
+            token?.ThrowIfCancellationRequested();
             ConnectionEstablished?.Invoke(this, new WifiDirectConnectionEventArgs 
             { 
                 LocalIpAddress = localIp, 
@@ -184,7 +181,8 @@ WiFiDirectConnectionRequestedEventArgs args)
         else 
         { 
             ReportError("Connexion établie mais aucune adresse IP n'a pu être assignée."); 
-        } 
+        }
+        _connectedDevices.Add(wfdDevice); 
     } 
 
     private void OnDeviceConnectionStatusChanged(WiFiDirectDevice sender, object args) 
@@ -281,5 +279,10 @@ WiFiDirectConnectionRequestedEventArgs args)
     public void Dispose()
     {
         Stop();
+    }
+
+    public Task StartPublisherSubscribingAsync(CancellationToken token)
+    {
+        throw new NotImplementedException();
     }
 }
