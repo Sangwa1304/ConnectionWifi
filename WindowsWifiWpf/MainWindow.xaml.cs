@@ -22,7 +22,6 @@ public partial class MainWindow : Window
     private CancellationTokenSource _ctsConction;
 
     public event EventHandler<WifiDirectConnectionEventArgs>? Sended;
-    private readonly List<WifiDirectPeer> Peers = [];
     public ObservableCollection<WifiDirectPeer> DiscoveredDevices { get; set; }
     public ObservableCollection<FileI> _pendingTransferPaths {get;set;}
     public string LocalIp { get; private set; }
@@ -54,14 +53,12 @@ public partial class MainWindow : Window
             _wifiService = null;
             _transferService = null;
             DisableFeatures();
-            return;
         }
-        _wifiService.StartPublishingAsync();
-        _ctsWatcher = new();
+        else
+            _wifiService.StartPublishingAsync();
         
-        _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
         // Mock pour tester l'UI
-        DiscoveredDevices.Add(new WifiDirectPeer { Name = "Glory-Phone", TestMode = true});
+        //DiscoveredDevices.Add(new WifiDirectPeer { Name = "Glory-Phone", TestMode = true});
     }
 
     private bool Init()
@@ -85,25 +82,26 @@ public partial class MainWindow : Window
     }
     private void EnabledFeatures()
     {
-       WindError.Visibility = Visibility.Visible;
-       WindNormal.Visibility = Visibility.Collapsed;
+       WindError.Visibility = Visibility.Collapsed;
+       WindNormal.Visibility = Visibility.Visible;
     }
         
     private void RetryPage()
     {
         _wifiService = new();
+        _wifiService.InitializeAsync().Wait();
         if(!_wifiService.IsHardwareSupported)
         {   
             _wifiService.Stop();
             _wifiService = null;
             _transferService = null;
             DisableFeatures();
-            return;
         }
+        else{
         EnabledFeatures();
         _transferService = new();
         Init();
-        _wifiService.StartPublishingAsync();
+        _wifiService.StartPublishingAsync();}
         
     }
     private void Window_DragEnter(object sender, DragEventArgs e) 
@@ -136,12 +134,8 @@ public partial class MainWindow : Window
         }
         else
         {
-            /*DiscoveredDevices =[];
+            Reload_Button();
             
-            _ctsWatcher = new();
-        
-            _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
-            */
         }
     }
 
@@ -154,13 +148,28 @@ public partial class MainWindow : Window
     { 
         RetryPage();
     }
+    private void Reload_Button_Click (object sender, RoutedEventArgs e) 
+    { 
+        Reload_Button();
+    }
+    
+    private void Reload_Button() 
+    { 
+        _ctsWatcher?.Cancel();
+        DiscoveredDevices.Clear();
+        _ctsWatcher = new();
+
+        _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
+        
+    }
     private async void Delette_Contents_Click(object sender, RoutedEventArgs e) 
     {
         _pendingTransferPaths.Clear();
         //_ctsWatcher?.Cancel();
         DropStatusText.Text = "";
-        DiscoveredDevices = [];
+        //DiscoveredDevices.Clear();
         Reload();
+        Reload_Button();
         
     }
     private async void Delette_Content_Click(object sender, RoutedEventArgs e) 
@@ -172,7 +181,8 @@ public partial class MainWindow : Window
             if(_pendingTransferPaths.Count == 0)
             {
                 //_ctsWatcher?.Cancel();
-                DiscoveredDevices = [];
+                //DiscoveredDevices = [];
+                Reload_Button();
             }
             Reload();
         }
@@ -184,13 +194,13 @@ public partial class MainWindow : Window
         {
             DropStatusText.Text = "Aucun élément sélectionné";
             cleaner.Visibility = Visibility.Collapsed;
-            glisser.Visibility = BtBrwonser.Visibility = Visibility.Visible;
+            BtBrwonser.Visibility = Visibility.Visible;
         }
         else 
         {
             DropStatusText.Text = $"{_pendingTransferPaths.Count} élément(s) prêt(s). Sélectionnez un appareil en bas.";
             cleaner.Visibility = Visibility.Visible;
-            glisser.Visibility = BtBrwonser.Visibility = Visibility.Collapsed;
+            BtBrwonser.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -286,7 +296,6 @@ private async void WifiService_ConnectionEstablished(object? sender, WifiDirectC
     
     if (!Dispatcher.CheckAccess())
     { 
-        
         await Dispatcher.BeginInvoke(new Action(async () => {await ConfigureTransferEndpointAsync(e);})); 
         return;
     }
@@ -324,10 +333,14 @@ private async void WifiService_ConnectionEstablished(object? sender, WifiDirectC
     } 
 }
 private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e)
-    => Debug.WriteLine(e.Status); //Dispatcher.Invoke(() => StatusText.Text = e.Status.ToString()); 
+{
+    Debug.WriteLine(e.Status);
+        
+    Dispatcher.Invoke(() => MessageText.Text = e.Status.ToString()); 
+}
 
 private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e)  
-    => Dispatcher.Invoke(() =>  DiscoveredDevices.Add(e.Peer)); 
+    => Dispatcher.Invoke(() =>{if(DiscoveredDevices.Contains(e.Peer)) return;  DiscoveredDevices.Add(e.Peer);}); 
  
 private void WifiService_PeerUpdated(object? sender, WifiDirectPeerEventArgs e)  
     => Dispatcher.Invoke(() => RefreshPeer(e.Peer)); 
@@ -340,7 +353,7 @@ private async void WifiService_InvitationReceived(object? sender, WifiDirectInvi
     if (!Dispatcher.CheckAccess())
     { 
         await Dispatcher.BeginInvoke(new Action(async () => await HandleInvitationAsync(e))); 
-        return; 
+        return;
     } 
 
     await HandleInvitationAsync(e); 
@@ -355,7 +368,7 @@ private async Task HandleInvitationAsync(WifiDirectInvitationEventArgs invitatio
         MessageBoxButton.YesNo, 
         MessageBoxImage.Question); 
 
-    try 
+    try
     { 
         if (result == MessageBoxResult.Yes) 
         { 
@@ -376,18 +389,23 @@ private async Task HandleInvitationAsync(WifiDirectInvitationEventArgs invitatio
 
 private void RefreshPeer(WifiDirectPeer peer) 
 { 
-    WifiDirectPeer[] _value = [.. from _peer in DiscoveredDevices where _peer.Id == peer.Id && _peer.Name == peer.Name select _peer];
+    WifiDirectPeer[] _value = [.. from _peer in DiscoveredDevices where _peer.Id == peer.Id select _peer];
     
     if(DiscoveredDevices.Contains(_value[0]))
     {
         DiscoveredDevices[DiscoveredDevices.IndexOf(_value[0])] = peer;
     }
-    else DiscoveredDevices.Add(peer); 
+    else {peer.Name = "Inconnu" ; DiscoveredDevices.Add(peer); }
 }
 
 private void RemovePeer(WifiDirectPeer peer) 
 {
-    DiscoveredDevices.Remove(peer);
+    WifiDirectPeer[] _value = [.. from _peer in DiscoveredDevices where _peer.Id == peer.Id select _peer];
+    
+    if(DiscoveredDevices.Contains(_value[0]))
+    {
+        DiscoveredDevices.Remove(_value[0]);
+    }
 }
 
 private async Task RunUiOperationAsync(Func<Task> operation) 
@@ -424,9 +442,9 @@ public class FileI
             var inf = new FileInfo(path);
             PathFile = path;
             Name = inf.Name;
-            Size = inf.Length;
-            if(Directory.Exists(path)) Type = TypeFile.Folder;
-            else Type = TypeFile.File;
+            
+            if(Directory.Exists(path)) {Type = TypeFile.Folder;Size = 0; }
+            else {Type = TypeFile.File;Size = inf.Length;}
              
         }
         else throw new ArgumentException($"{path} does'nt exist ");

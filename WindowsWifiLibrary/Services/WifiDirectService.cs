@@ -67,16 +67,18 @@ _pendingInvitations = new();
 
     public void StartSubscribingAsync(CancellationToken token) 
     {
-        StopWatcher(); 
+        StopWatcher();
 
         string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint); 
         _deviceWatcher =DeviceInformation.CreateWatcher(deviceSelector);
         
         _deviceWatcher.Added += OnDeviceAdded;
         _deviceWatcher.Updated += OnDeviceUpdated; 
-        _deviceWatcher.Removed += OnDeviceRemoved; 
+        _deviceWatcher.Removed += OnDeviceRemoved;
+        
         if(token.IsCancellationRequested)
-        {
+        {   
+            StopWatcher();
             return;
         }
         _deviceWatcher.Start(); 
@@ -103,8 +105,7 @@ _pendingInvitations = new();
         } 
     } 
 
-    private void OnConnectionRequested(WiFiDirectConnectionListener sender, 
-WiFiDirectConnectionRequestedEventArgs args) 
+    private void OnConnectionRequested(WiFiDirectConnectionListener sender, WiFiDirectConnectionRequestedEventArgs args) 
     { 
         var request = args.GetConnectionRequest(); 
         string token = Guid.NewGuid().ToString(); 
@@ -208,7 +209,7 @@ WiFiDirectConnectionRequestedEventArgs args)
     { 
         PeerUpdated?.Invoke(this, new WifiDirectPeerEventArgs 
         { 
-            Peer = new WifiDirectPeer { Id = args.Id, Name = "Appareil mis à jour" } 
+            Peer = new WifiDirectPeer { Id = args.Id} 
         }); 
     } 
 
@@ -216,7 +217,7 @@ WiFiDirectConnectionRequestedEventArgs args)
     { 
         PeerRemoved?.Invoke(this, new WifiDirectPeerEventArgs 
         { 
-            Peer = new WifiDirectPeer { Id = args.Id } 
+            Peer = new WifiDirectPeer { Id = args.Id }
         }); 
     } 
 
