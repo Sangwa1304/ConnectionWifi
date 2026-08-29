@@ -35,31 +35,11 @@ public partial class MainWindow : Window
     private const int LocalPort = 5050;
 
     public MainWindow()
-    {
-        InitializeComponent();
-        _wifiService = new();
-        _transferService = new();
-        _wifiService.InitializeAsync().Wait();
-        Init();
-
-        _pendingTransferPaths = [];
-        DiscoveredDevices = [];
-        DevicesItemsControl.ItemsSource = DiscoveredDevices;
-        FilesItemsControl.ItemsSource = _pendingTransferPaths;
-        
-        if (!_wifiService.IsHardwareSupported)
-        {
-            _wifiService.Stop();
-            _wifiService = null;
-            _transferService = null;
-            DisableFeatures();
-        }
-        else
-            _wifiService.StartPublishingAsync();
-        
-        // Mock pour tester l'UI
-        //DiscoveredDevices.Add(new WifiDirectPeer { Name = "Glory-Phone", TestMode = true});
-    }
+            {
+                InitializeComponent();
+                // Using MVVM: set the DataContext to the MainViewModel which owns services and state.
+                DataContext = new WindowsWifiWpf.ViewModels.MainViewModel();
+            }
 
     private bool Init()
     {

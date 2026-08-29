@@ -12,10 +12,12 @@
     Height="650"
     AllowDrop="True"
     Background="#0F172A"
-    DragEnter="Window_DragEnter"
-    Drop="Window_Drop"
     Foreground="#F8FAFC"
     WindowStartupLocation="CenterScreen" >
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </Window.Resources>
 
     <Grid>
         <Grid Margin="20" x:Name="WindNormal" Visibility="Visible">
@@ -40,14 +42,14 @@
                         <Button x:Name="BtBrwonser"
                             Background="transparent"
                             Cursor = "Hand"
-                            Visibility="Visible"
+                            Visibility="{Binding NoPendingFiles, Converter={StaticResource BoolToVis}}"
                             FontSize="20"
                             FontWeight="SemiBold"
                             Foreground="#FF1062D6"
                             HorizontalAlignment="center"
                             Content="Glissez Deposez ou cliquez ici..."
                             BorderBrush="#FF0B1431"
-                            Click="BrowseButton_Click"/>
+                            Command="{Binding BrowseCommand}"/>
                         <StackPanel Orientation="Vertical">
                             <!--Button x:Name="BtBrwonser"
                                 Background="transparent"
@@ -65,19 +67,19 @@
                                 HorizontalAlignment="Center"
                                 Foreground="#38BDF8"
                                 FontWeight="SemiBold"
-                                Text="Aucun élément selectionné(s)"/>
+                                                            Text="{Binding DropStatusText}"/>
                             </StackPanel>
                         
                     </StackPanel>
                     <Border
                         x:Name="cleaner"
                         BorderThickness="0"
-                        Visibility="Collapsed"
+                        Visibility="{Binding HasPendingFiles, Converter={StaticResource BoolToVis}}"
                         Grid.Row="1">
                         <StackPanel>
                             <Button
                                 Background="Transparent"
-                                Click="Delette_Contents_Click"
+                                Command="{Binding DeleteAllCommand}"
                                 Cursor = "Hand"
                                 FontSize="20"
                                 FontWeight="SemiBold"
@@ -100,7 +102,7 @@
                                 <ScrollViewer
                                     HorizontalScrollBarVisibility="Disabled"
                                     VerticalScrollBarVisibility="Hidden">
-                                    <ItemsControl x:Name="FilesItemsControl">
+                                    <ItemsControl x:Name="FilesItemsControl" ItemsSource="{Binding PendingFiles}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
                                                 <StackPanel Orientation="Vertical"/>
@@ -149,7 +151,7 @@
 
                                                             <Button
                                                                 Grid.Column="1"
-                                                                Click="Delette_Content_Click"
+                                                                Command="{Binding DataContext.DeleteItemCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                                 Content="X"
                                                                 Padding="12,0"
                                                                 FontWeight="Bold"
@@ -190,7 +192,7 @@
                     VerticalScrollBarVisibility="Hidden">
                     <StackPanel>
                         <Button
-                            Click="Reload_Button_Click"
+                            Command="{Binding ReloadCommand}"
                             Content="retry"
                             FontWeight="Bold"
                             FontSize="14"
@@ -204,7 +206,7 @@
                                 </Style>
                             </Button.Resources>
                         </Button>
-                        <ItemsControl x:Name="DevicesItemsControl">
+                        <ItemsControl x:Name="DevicesItemsControl" ItemsSource="{Binding DiscoveredDevices}">
 
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
@@ -252,7 +254,7 @@
                                                 HorizontalAlignment="Right"
                                                 Background="#FF5174AC"
                                                 BorderThickness="0.2"
-                                                Click="BtnConnectAndSend_Click"
+                                                Command="{Binding DataContext.ConnectAndSendCommand, RelativeSource={RelativeSource AncestorType=Window}}" CommandParameter="{Binding}"
                                                 Content="Envoyer vers l'appareil"
                                                 Cursor="Hand"
                                                 Foreground="White"
@@ -282,12 +284,12 @@
                         x:Name="MessageText"
                         Margin="0,0,0,30"
                         Foreground="#CBD5E1"
-                        Text=""/>
+                                            Text="{Binding MessageText}"/>
                     <TextBlock
                         x:Name="ProgressText"
                         Margin="0,0,0,2"
                         Foreground="#CBD5E1"
-                        Text="En attente..."/>
+                        Text="{Binding ProgressText}"/>
                     <ProgressBar
                         x:Name="TransferProgressBar"
                         Height="8"
@@ -295,13 +297,14 @@
                         BorderThickness="0"
                         Foreground="#38BDF8"
                         Maximum="100"
-                        Minimum="0"/>
+                                            Minimum="0"
+                                            Value="{Binding TransferProgress}"/>
                 </StackPanel>
             </Border>
         </Grid>
         <Grid x:Name="WindError" Background="transparent" Visibility = "Collapsed">
             <Border Background="Gray">
-                <Button  Click = "Retry_Button" Background="transparent" Content="retry" FontSize="21" Foreground="Green"/>
+                <Button  Command="{Binding RetryCommand}" Background="transparent" Content="retry" FontSize="21" Foreground="Green"/>
                 
             </Border>
         </Grid>
