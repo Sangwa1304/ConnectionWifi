@@ -15,11 +15,39 @@ using WindowsWifiWpf.Models;
 
 namespace WindowsWifiWpf.ViewModels
 {
+    public enum TransferWorkflowState
+    {
+        Idle,
+        DiscoveringPeers,
+        PeerSelected,
+        PairingRequested,
+        TransferNegotiation,
+        Sending,
+        Receiving,
+        Completed,
+        Cancelled,
+        Error
+    }
+
     public class MainViewModel : INotifyPropertyChanged
     {
         // Services
         private readonly WindowsWifiDirectService _wifiService;
         private readonly FileTransferService _transferService;
+
+        private TransferWorkflowState _currentState = TransferWorkflowState.Idle;
+        public TransferWorkflowState CurrentState
+        {
+            get => _currentState;
+            set { _currentState = value; OnPropertyChanged(nameof(CurrentState)); }
+        }
+
+        private string _selectedPeerName = "Aucun appareil sélectionné";
+        public string SelectedPeerName
+        {
+            get => _selectedPeerName;
+            set { _selectedPeerName = value; OnPropertyChanged(nameof(SelectedPeerName)); }
+        }
 
         // State
         public ObservableCollection<WifiDirectPeer> DiscoveredDevices { get; } = new();
@@ -49,6 +77,7 @@ namespace WindowsWifiWpf.ViewModels
         public ICommand BrowseCommand { get; }
         public ICommand RetryCommand { get; }
         public ICommand ReloadCommand { get; }
+        public ICommand ScanCommand { get; }
         public ICommand DeleteAllCommand { get; }
         public ICommand DeleteItemCommand { get; }
         public ICommand ConnectAndSendCommand { get; }
@@ -94,11 +123,32 @@ namespace WindowsWifiWpf.ViewModels
             BrowseCommand = new RelayCommand(async _ => await ExecuteBrowseAsync());
             RetryCommand = new RelayCommand(_ => RetryPage());
             ReloadCommand = new RelayCommand(_ => Reload());
+            ScanCommand = new RelayCommand(_ => StartDiscovery());
             DeleteAllCommand = new RelayCommand(_ => DeleteAll());
             DeleteItemCommand = new RelayCommand(param => DeleteItem(param as FileI), param => param is FileI);
             ConnectAndSendCommand = new RelayCommand(async param => await ConnectAndSendAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
 
             PendingFiles.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasPendingFiles)); OnPropertyChanged(nameof(NoPendingFiles)); UpdateDropStatus(); };
+
+            SetState(TransferWorkflowState.Idle, "Prêt à démarrer un transfert.");
+        }
+
+        private void StartDiscovery()
+        {
+            SetState(TransferWorkflowState.DiscoveringPeers, "Recherche des appareils disponibles...");
+            _ctsWatcher?.Cancel();
+            DiscoveredDevices.Clear();
+            _ctsWatcher = new CancellationTokenSource();
+            _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
+        }
+
+        private void SetState(TransferWorkflowState state, string? statusMessage = null)
+        {
+            CurrentState = state;
+            if (!string.IsNullOrWhiteSpace(statusMessage))
+            {
+                MessageText = statusMessage;
+            }
         }
 
         // ---- ICommand implementations delegate helpers ----
@@ -139,10 +189,7 @@ namespace WindowsWifiWpf.ViewModels
 
         private void Reload()
         {
-            _ctsWatcher?.Cancel();
-            DiscoveredDevices.Clear();
-            _ctsWatcher = new();
-            _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
+            StartDiscovery();
         }
 
         private void DeleteAll()
@@ -170,16 +217,27 @@ namespace WindowsWifiWpf.ViewModels
 
             try
             {
+                SelectedPeerName = target.Name;
+                SetState(TransferWorkflowState.PeerSelected, $"Appareil sélectionné : {target.Name}");
+                SetState(TransferWorkflowState.PairingRequested, "Demande de connexion en cours...");
+
                 ProgressText = "Demande de connection en cours...";
                 _ctsInvitation = new();
                 _ctsConction = new();
                 if (target.TestMode) { ProgressText = "Test reçu avec success "; return; }
-                // Subscribe to connection established event and request connection
+
+                if (string.IsNullOrWhiteSpace(target.Id))
+                {
+                    throw new InvalidOperationException("L'appareil sélectionné n'a pas d'identifiant valide.");
+                }
+
                 await WaitConnectionEstablishAsync(target);
                 await _wifiService.ConnectToPeerAsync(target, _ctsConction.Token);
+                SetState(TransferWorkflowState.TransferNegotiation, "Connexion établie. Négociation du transfert...");
             }
             catch (Exception ex)
             {
+                SetState(TransferWorkflowState.Error, "Erreur : " + ex.Message);
                 ProgressText = "Erreur : " + ex.Message;
             }
         }
@@ -220,13 +278,25 @@ namespace WindowsWifiWpf.ViewModels
         }
 
         private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e)
-            => Application.Current.Dispatcher.Invoke(() => { if (DiscoveredDevices.Contains(e.Peer)) return; DiscoveredDevices.Add(e.Peer); });
+            => Application.Current.Dispatcher.Invoke(() =>
+            {
+                if (DiscoveredDevices.Contains(e.Peer)) return;
+                DiscoveredDevices.Add(e.Peer);
+                SetState(TransferWorkflowState.DiscoveringPeers, $"{DiscoveredDevices.Count} appareil(s) détecté(s).");
+            });
 
         private void WifiService_PeerUpdated(object? sender, WifiDirectPeerEventArgs e)
             => Application.Current.Dispatcher.Invoke(() => RefreshPeer(e.Peer));
 
         private void WifiService_PeerRemoved(object? sender, WifiDirectPeerEventArgs e)
-            => Application.Current.Dispatcher.Invoke(() => RemovePeer(e.Peer));
+            => Application.Current.Dispatcher.Invoke(() =>
+            {
+                RemovePeer(e.Peer);
+                if (DiscoveredDevices.Count == 0)
+                {
+                    SetState(TransferWorkflowState.Idle, "Aucun appareil détecté. Relancez une recherche.");
+                }
+            });
 
         private async void WifiService_InvitationReceived(object? sender, WifiDirectInvitationEventArgs e)
         {
@@ -259,6 +329,8 @@ namespace WindowsWifiWpf.ViewModels
         {
             Application.Current.Dispatcher.Invoke(async () =>
             {
+                SetState(TransferWorkflowState.TransferNegotiation, "Connexion Wi‑Fi Direct établie.");
+
                 // Configure transfer endpoint
                 var localIp = e.LocalIpAddress;
                 var localPort = 5050;
@@ -279,27 +351,45 @@ namespace WindowsWifiWpf.ViewModels
             Application.Current.Dispatcher.Invoke(async () =>
             {
                 var msg = $"{metadata.SenderName} veut vous envoyer {metadata.TotalFiles} fichiers ({(metadata.TotalSize / 1024 / 1024)} Mo).\nAccepter ?";
+                SetState(TransferWorkflowState.TransferNegotiation, "Réception demandée : validation du transfert.");
+
                 if (MessageBox.Show(msg, "Réception", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
                 {
+                    var decision = await _transferService.AcceptTransferAsync(metadata, null, CancellationToken.None);
+                    metadata.NegotiationStatus = TransferNegotiationStatus.Accepted;
+                    metadata.SessionState = TransferSessionState.ReadyToSend;
+                    metadata.TargetFolder = decision.DestinationFolder;
+
                     _ctsTransfert = new();
-                    string destPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P");
+                    string destPath = string.IsNullOrWhiteSpace(decision.DestinationFolder)
+                        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P")
+                        : decision.DestinationFolder;
                     Directory.CreateDirectory(destPath);
 
                     var progress = new Progress<FileTransferProgress>(p =>
                     {
                         TransferProgress = p.Percentage;
+                        SetState(TransferWorkflowState.Receiving, $"Réception : {p.CurrentFileName} ({p.Percentage:0.0}%)");
                         ProgressText = $"Réception : {p.CurrentFileName} ({p.Percentage:0.0}%)";
                     });
 
                     try
                     {
                         await _transferService.DownloadSessionAsync(metadata, destPath, progress, _ctsTransfert.Token);
+                        SetState(TransferWorkflowState.Completed, "Transfert terminé avec succès !");
                         ProgressText = "Transfert terminé avec succès !";
                     }
                     catch (Exception ex)
                     {
+                        SetState(TransferWorkflowState.Error, "Erreur de téléchargement : " + ex.Message);
                         ProgressText = "Erreur de téléchargement : " + ex.Message;
                     }
+                }
+                else
+                {
+                    metadata.NegotiationStatus = TransferNegotiationStatus.Refused;
+                    metadata.SessionState = TransferSessionState.Cancelled;
+                    SetState(TransferWorkflowState.Cancelled, "Transfert refusé par l’utilisateur.");
                 }
             });
         }
@@ -318,6 +408,11 @@ namespace WindowsWifiWpf.ViewModels
                 {
                     peer.Name = "Inconnu";
                     DiscoveredDevices.Add(peer);
+                }
+
+                if (!string.IsNullOrWhiteSpace(peer.Name))
+                {
+                    SelectedPeerName = peer.Name;
                 }
             });
         }

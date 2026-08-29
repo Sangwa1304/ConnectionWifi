@@ -9,4 +9,9 @@ public class TransferSessionMetadata
     public long TotalSize { get; set; }
     public int TotalFiles { get; set; }
     public List<TransferItemMetadata> Items { get; set; } = [];
+    public TransferSessionState SessionState { get; set; } = TransferSessionState.Created;
+    public TransferNegotiationStatus NegotiationStatus { get; set; } = TransferNegotiationStatus.Pending;
+    public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public string? TargetFolder { get; set; }
+    public string? ErrorMessage { get; set; }
 }

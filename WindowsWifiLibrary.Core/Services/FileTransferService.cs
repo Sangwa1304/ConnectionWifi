@@ -13,7 +13,8 @@ public class FileTransferService : IFileTransferService
 
     private HttpListener? _listener; 
     private CancellationTokenSource? _listenerCts; 
-    private readonly Dictionary<string, string> _servedFiles = []; // Mappe le RelativePath au FullLocalPath 
+    private readonly Dictionary<string, string> _servedFiles = []; // Mappe le RelativePath au FullLocalPath
+    private readonly Dictionary<string, TransferSessionMetadata> _activeSessions = new(StringComparer.OrdinalIgnoreCase);
 
     public async Task StartListeningAsync(string localIp, int port, CancellationToken cancellationToken) 
     {
@@ -35,12 +36,82 @@ public class FileTransferService : IFileTransferService
         catch (HttpListenerException) { } 
     } 
 
+    public Task<TransferValidationResult> ValidateTransferAsync(IEnumerable<string> paths, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var result = new TransferValidationResult();
+        var normalizedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var rawPath in paths.Where(p => !string.IsNullOrWhiteSpace(p)))
+        {
+            var trimmedPath = rawPath.Trim();
+            if (!File.Exists(trimmedPath) && !Directory.Exists(trimmedPath))
+            {
+                result.Errors.Add($"Le chemin '{trimmedPath}' est introuvable ou invalide.");
+                continue;
+            }
+
+            var canonicalPath = Path.GetFullPath(trimmedPath);
+            if (!normalizedPaths.Add(canonicalPath))
+            {
+                result.Warnings.Add($"Le chemin '{canonicalPath}' est dupliqué dans le transfert.");
+                continue;
+            }
+
+            result.NormalizedPaths.Add(canonicalPath);
+        }
+
+        if (result.NormalizedPaths.Count == 0)
+        {
+            result.IsValid = false;
+            result.Errors.Add("Aucun fichier ou dossier valide n'a été fourni.");
+        }
+
+        result.IsValid = result.IsValid && result.Errors.Count == 0;
+        return Task.FromResult(result);
+    }
+
+    public Task<TransferDecision> AcceptTransferAsync(TransferSessionMetadata session, string? destinationFolder, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var decision = new TransferDecision
+        {
+            Accepted = true,
+            DestinationFolder = string.IsNullOrWhiteSpace(destinationFolder)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P")
+                : destinationFolder,
+            Reason = "Transfer accepted"
+        };
+
+        session.NegotiationStatus = TransferNegotiationStatus.Accepted;
+        session.SessionState = TransferSessionState.ReadyToSend;
+        session.TargetFolder = decision.DestinationFolder;
+        return Task.FromResult(decision);
+    }
+
+    public Task CancelSessionAsync(string sessionId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!string.IsNullOrWhiteSpace(sessionId) && _activeSessions.TryGetValue(sessionId, out var session))
+        {
+            session.SessionState = TransferSessionState.Cancelled;
+            session.NegotiationStatus = TransferNegotiationStatus.Cancelled;
+        }
+
+        _servedFiles.Clear();
+        return Task.CompletedTask;
+    }
+
     public Task StopListeningAsync() 
     { 
         _listenerCts?.Cancel(); 
         _listener?.Stop(); 
         _listener = null; 
         _servedFiles.Clear();
+        _activeSessions.Clear();
         return Task.CompletedTask; 
     } 
 
@@ -54,16 +125,24 @@ public class FileTransferService : IFileTransferService
             if (request.HttpMethod == "POST" && request.Url?.AbsolutePath == "/api/transfer/request") 
             { 
                 using var reader = new StreamReader(request.InputStream); 
-                var metadata = JsonSerializer.Deserialize<TransferSessionMetadata>(await reader.ReadToEndAsync()); 
+                var payload = await reader.ReadToEndAsync();
+                var metadata = JsonSerializer.Deserialize<TransferSessionMetadata>(payload); 
                 if (metadata != null) 
                 { 
-                    IncomingTransferRequested?.Invoke(this, metadata); 
-                    response.StatusCode = (int)HttpStatusCode.Accepted; 
-                } 
+                    _activeSessions[metadata.SessionId] = metadata;
+                    metadata.SessionState = TransferSessionState.Negotiating;
+                    metadata.NegotiationStatus = TransferNegotiationStatus.Pending;
+                    IncomingTransferRequested?.Invoke(this, metadata);
+                    response.StatusCode = (int)HttpStatusCode.Accepted;
+                }
+                else
+                {
+                    response.StatusCode = (int)HttpStatusCode.BadRequest;
+                }
             } 
             else if (request.HttpMethod == "GET" && request.Url?.AbsolutePath == "/api/transfer/download") 
             { 
-                string relativePath = request.QueryString["path"] ?? string.Empty; 
+                string relativePath = request.QueryString["path"] ?? string.Empty;
                 if (_servedFiles.TryGetValue(relativePath, out var fullPath) && File.Exists(fullPath)) 
                 { 
                     await ServeFileChunkAsync(request, response, fullPath); 
@@ -73,6 +152,14 @@ public class FileTransferService : IFileTransferService
                     response.StatusCode = (int)HttpStatusCode.NotFound; 
                 } 
             } 
+            else if (request.HttpMethod == "POST" && request.Url?.AbsolutePath == "/api/transfer/accept")
+            {
+                response.StatusCode = (int)HttpStatusCode.Accepted;
+            }
+            else
+            {
+                response.StatusCode = (int)HttpStatusCode.NotFound;
+            }
         } 
         finally 
         { 
@@ -119,43 +206,67 @@ public class FileTransferService : IFileTransferService
 
     public Task<TransferSessionMetadata> PrepareMetadataAsync(IEnumerable<string> paths, string localIp, int port) 
     {
-        var session = new TransferSessionMetadata { SenderIp = localIp, SenderPort = port }; 
-        _servedFiles.Clear(); 
+        var session = new TransferSessionMetadata { SenderIp = localIp, SenderPort = port, SessionState = TransferSessionState.Created };
+        _servedFiles.Clear();
 
-        foreach (var path in paths) 
-        { 
-            if (File.Exists(path)) 
-            { 
-                var fileInfo = new FileInfo(path); 
-                session.Items.Add(new TransferItemMetadata { RelativePath = fileInfo.Name, IsDirectory = false, Size = fileInfo.Length }); 
-                session.TotalSize += fileInfo.Length; 
-                session.TotalFiles++; 
-                _servedFiles[fileInfo.Name] = fileInfo.FullName; 
-            } 
-            else if (Directory.Exists(path)) 
-            { 
-                var dirInfo = new DirectoryInfo(path); 
-                session.Items.Add(BuildDirectoryMetadata(dirInfo, dirInfo.Name, session)); 
-            } 
-        } 
-        return Task.FromResult(session); 
-    } 
+        var validation = ValidateTransferAsync(paths, CancellationToken.None).GetAwaiter().GetResult();
+        if (!validation.IsValid)
+        {
+            session.ErrorMessage = string.Join("; ", validation.Errors);
+            session.SessionState = TransferSessionState.Failed;
+            session.NegotiationStatus = TransferNegotiationStatus.Error;
+            return Task.FromResult(session);
+        }
+
+        foreach (var normalizedPath in validation.NormalizedPaths)
+        {
+            if (File.Exists(normalizedPath))
+            {
+                var fileInfo = new FileInfo(normalizedPath);
+                var item = new TransferItemMetadata
+                {
+                    RelativePath = fileInfo.Name,
+                    FullLocalPath = fileInfo.FullName,
+                    IsDirectory = false,
+                    Size = fileInfo.Length
+                };
+
+                session.Items.Add(item);
+                session.TotalSize += fileInfo.Length;
+                session.TotalFiles++;
+                _servedFiles[item.RelativePath] = fileInfo.FullName;
+            }
+            else if (Directory.Exists(normalizedPath))
+            {
+                var directoryInfo = new DirectoryInfo(normalizedPath);
+                session.Items.Add(BuildDirectoryMetadata(directoryInfo, directoryInfo.Name, session));
+            }
+        }
+
+        session.SessionId = string.IsNullOrWhiteSpace(session.SessionId) ? Guid.NewGuid().ToString() : session.SessionId;
+        _activeSessions[session.SessionId] = session;
+        return Task.FromResult(session);
+    }
 
     private TransferItemMetadata BuildDirectoryMetadata(DirectoryInfo dir, string relativeBase, TransferSessionMetadata session) 
     { 
-        var dirMeta = new TransferItemMetadata { RelativePath = relativeBase, IsDirectory = true }; 
-        foreach (var file in dir.GetFiles()) 
-        { 
+        var dirMeta = new TransferItemMetadata { RelativePath = relativeBase, FullLocalPath = dir.FullName, IsDirectory = true }; 
+
+        foreach (var file in dir.GetFiles())
+        {
             string relPath = $"{relativeBase}/{file.Name}"; 
-            dirMeta.Children.Add(new TransferItemMetadata { RelativePath = relPath, IsDirectory = false, Size = file.Length }); 
+            var item = new TransferItemMetadata { RelativePath = relPath, FullLocalPath = file.FullName, IsDirectory = false, Size = file.Length };
+            dirMeta.Children.Add(item);
             session.TotalSize += file.Length; 
             session.TotalFiles++; 
             _servedFiles[relPath] = file.FullName; 
-        } 
-        foreach (var subDir in dir.GetDirectories()) 
+        }
+
+        foreach (var subDir in dir.GetDirectories())
         { 
             dirMeta.Children.Add(BuildDirectoryMetadata(subDir, $"{relativeBase}/{subDir.Name}", session)); 
-        } 
+        }
+
         return dirMeta; 
     } 
 
@@ -167,64 +278,85 @@ public class FileTransferService : IFileTransferService
     }
 
     public async Task DownloadSessionAsync(TransferSessionMetadata session, string destinationFolder, IProgress<FileTransferProgress> progress, CancellationToken cancellationToken) 
-    { 
-        long globalBytesTransferred = 0; 
-        string baseUrl = $"http://{session.SenderIp}:{session.SenderPort}/api/transfer/download"; 
+    {
+        cancellationToken.ThrowIfCancellationRequested();
 
-        async Task ProcessItemAsync(TransferItemMetadata item) 
-        { 
-            string targetPath = Path.Combine(destinationFolder, item.RelativePath); 
-            if (item.IsDirectory) 
-            { 
-                Directory.CreateDirectory(targetPath); 
-                foreach (var child in item.Children) await ProcessItemAsync(child); 
-            } 
-            else 
-            { 
-                await DownloadFileMultiThreadedAsync($"{baseUrl}?path={Uri.EscapeDataString(item.RelativePath)}", targetPath, item.Size, 4, cancellationToken, read =>  
-                { 
-                    globalBytesTransferred += read; 
-                    progress?.Report(new FileTransferProgress { BytesTransferred = globalBytesTransferred, TotalBytes = session.TotalSize, CurrentFileName = item.RelativePath }); 
-                }); 
-            } 
-        } 
-        foreach (var item in session.Items) await ProcessItemAsync(item); 
-    } 
+        if (string.IsNullOrWhiteSpace(session.SenderIp) || session.SenderPort <= 0)
+        {
+            throw new InvalidOperationException("Le transfert ne dispose pas d'une destination valide.");
+        }
 
-    private async Task DownloadFileMultiThreadedAsync(string url, string destinationPath, long fileSize, int threads, CancellationToken token, Action<int> onProgress) 
-    { 
-        using var fs = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None); 
-        fs.SetLength(fileSize); 
-         
-        long chunkSize = fileSize / threads; 
-        var tasks = new List<Task>(); 
+        long globalBytesTransferred = 0;
+        string baseUrl = $"http://{session.SenderIp}:{session.SenderPort}/api/transfer/download";
 
-        for (int i = 0; i < threads; i++) 
-        { 
-            long start = i * chunkSize; 
-            long end = (i == threads - 1) ? fileSize - 1 : start + chunkSize - 1; 
+        async Task ProcessItemAsync(TransferItemMetadata item)
+        {
+            string sanitizedRelativePath = item.RelativePath.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+            string targetPath = Path.Combine(destinationFolder, sanitizedRelativePath);
 
-            tasks.Add(Task.Run(async () => 
-            { 
-                using var client = new HttpClient(); 
-                var request = new HttpRequestMessage(HttpMethod.Get, url); 
-                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(start, end); 
-                 
-                using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token); 
-                using var stream = await response.Content.ReadAsStreamAsync(token); 
-                using var filePartStream = new FileStream(destinationPath, FileMode.Open, FileAccess.Write, FileShare.Write); 
-                filePartStream.Seek(start, SeekOrigin.Begin); 
+            if (item.IsDirectory)
+            {
+                Directory.CreateDirectory(targetPath);
+                foreach (var child in item.Children)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await ProcessItemAsync(child);
+                }
 
-                var buffer = new byte[81920]; 
-                int read; 
-                while ((read = await stream.ReadAsync(buffer, 0, buffer.Length, token)) > 0) 
-                { 
-                    token.ThrowIfCancellationRequested(); 
-                    lock (filePartStream) filePartStream.Write(buffer, 0, read); 
-                    lock (onProgress) onProgress(read); 
-                } 
-            }, token)); 
-        } 
-        await Task.WhenAll(tasks); 
-    } 
+                return;
+            }
+
+            var directory = Path.GetDirectoryName(targetPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var fileProgress = new Progress<long>(bytesRead =>
+            {
+                globalBytesTransferred += bytesRead;
+                progress.Report(new FileTransferProgress
+                {
+                    BytesTransferred = globalBytesTransferred,
+                    TotalBytes = session.TotalSize,
+                    CurrentFileName = item.RelativePath
+                });
+            });
+
+            await DownloadFileAsync($"{baseUrl}?path={Uri.EscapeDataString(item.RelativePath)}", targetPath, item.Size, cancellationToken, fileProgress);
+        }
+
+        foreach (var item in session.Items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await ProcessItemAsync(item);
+        }
+    }
+
+    private async Task DownloadFileAsync(string url, string destinationPath, long fileSize, CancellationToken token, IProgress<long> onProgress)
+    {
+        using var client = new HttpClient();
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
+        response.EnsureSuccessStatusCode();
+
+        await using var destinationStream = File.Create(destinationPath);
+        await using var sourceStream = await response.Content.ReadAsStreamAsync(token);
+
+        var buffer = new byte[81920];
+        int bytesRead;
+        long downloaded = 0;
+
+        while ((bytesRead = await sourceStream.ReadAsync(buffer, token)) > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            await destinationStream.WriteAsync(buffer.AsMemory(0, bytesRead), token);
+            downloaded += bytesRead;
+            onProgress.Report(bytesRead);
+        }
+
+        if (downloaded != fileSize)
+        {
+            throw new InvalidOperationException($"Le fichier '{destinationPath}' n'a pas été entièrement téléchargé.");
+        }
+    }
 } 
