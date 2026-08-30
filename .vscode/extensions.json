@@ -1,5 +1,7 @@
 {
     "recommendations": [
-        "jakubkozera.csharp-dev-tools"
+        "jakubkozera.csharp-dev-tools",
+        "ms-dotnettools.vscode-dotnet-runtime",
+        "noesistechnologies.noesisgui-tools"
     ]
 }
