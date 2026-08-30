@@ -71,6 +71,7 @@ namespace WindowsWifiWpf.ViewModels
         // State
         public ObservableCollection<WifiDirectPeer> DiscoveredDevices { get; } = new();
         public ObservableCollection<FileI> PendingFiles { get; } = new();
+        public ObservableCollection<TransferHistoryEntry> RecentTransfers { get; } = new();
 
         private string _dropStatusText = "Aucun élément sélectionné";
         public string DropStatusText { get => _dropStatusText; set { _dropStatusText = value; OnPropertyChanged(nameof(DropStatusText)); } }
@@ -83,6 +84,37 @@ namespace WindowsWifiWpf.ViewModels
 
         private double _transferProgress;
         public double TransferProgress { get => _transferProgress; set { _transferProgress = value; OnPropertyChanged(nameof(TransferProgress)); } }
+
+        private TransferSessionMetadata? _incomingTransferSession;
+        public TransferSessionMetadata? IncomingTransferSession
+        {
+            get => _incomingTransferSession;
+            set
+            {
+                _incomingTransferSession = value;
+                OnPropertyChanged(nameof(IncomingTransferSession));
+                OnPropertyChanged(nameof(IsTransferRequestVisible));
+                OnPropertyChanged(nameof(TransferRequestSummary));
+                OnPropertyChanged(nameof(CurrentTransferStatusText));
+            }
+        }
+
+        public bool IsTransferRequestVisible => IncomingTransferSession != null;
+        public string TransferRequestSummary => IncomingTransferSession == null
+            ? string.Empty
+            : $"{IncomingTransferSession.SenderName} souhaite envoyer {IncomingTransferSession.TotalFiles} élément(s) ({FormatSize(IncomingTransferSession.TotalSize)}).";
+
+        public string CurrentTransferStatusText =>
+            CurrentState switch
+            {
+                TransferWorkflowState.Sending => "Envoi en cours",
+                TransferWorkflowState.Receiving => "Réception en cours",
+                TransferWorkflowState.TransferNegotiation => "Négociation du transfert",
+                TransferWorkflowState.Completed => "Transfert terminé",
+                TransferWorkflowState.Cancelled => "Transfert annulé",
+                TransferWorkflowState.Error => "Erreur de transfert",
+                _ => "Aucun transfert actif"
+            };
 
         public bool HasPendingFiles => PendingFiles.Count > 0;
         public bool NoPendingFiles => !HasPendingFiles;
@@ -100,6 +132,11 @@ namespace WindowsWifiWpf.ViewModels
         public ICommand DeleteAllCommand { get; }
         public ICommand DeleteItemCommand { get; }
         public ICommand ConnectAndSendCommand { get; }
+        public ICommand AcceptTransferCommand { get; }
+        public ICommand RejectTransferCommand { get; }
+        public ICommand CancelTransferCommand { get; }
+        public ICommand OpenDownloadFolderCommand { get; }
+        public ICommand ClearTransferHistoryCommand { get; }
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -146,6 +183,9 @@ namespace WindowsWifiWpf.ViewModels
             DeleteAllCommand = new RelayCommand(_ => DeleteAll());
             DeleteItemCommand = new RelayCommand(param => DeleteItem(param as FileI), param => param is FileI);
             ConnectAndSendCommand = new RelayCommand(async param => await ConnectAndSendAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
+            AcceptTransferCommand = new RelayCommand(async _ => await AcceptIncomingTransferAsync(), _ => IncomingTransferSession != null);
+            RejectTransferCommand = new RelayCommand(_ => RejectIncomingTransfer(), _ => IncomingTransferSession != null);
+            CancelTransferCommand = new RelayCommand(_ => CancelActiveTransfer(), _ => CurrentState == TransferWorkflowState.Sending || CurrentState == TransferWorkflowState.Receiving || CurrentState == TransferWorkflowState.TransferNegotiation);
 
             PendingFiles.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasPendingFiles)); OnPropertyChanged(nameof(NoPendingFiles)); UpdateDropStatus(); };
 
@@ -168,6 +208,22 @@ namespace WindowsWifiWpf.ViewModels
             {
                 MessageText = statusMessage;
             }
+            OnPropertyChanged(nameof(CurrentTransferStatusText));
+            ((RelayCommand)CancelTransferCommand).RaiseCanExecuteChanged();
+        }
+
+        private static string FormatSize(long size)
+        {
+            string[] units = ["o", "Ko", "Mo", "Go", "To"];
+            double value = size;
+            int index = 0;
+            while (value >= 1024 && index < units.Length - 1)
+            {
+                value /= 1024;
+                index++;
+            }
+
+            return $"{value:0.##} {units[index]}";
         }
 
         // ---- ICommand implementations delegate helpers ----
@@ -404,50 +460,89 @@ namespace WindowsWifiWpf.ViewModels
 
         private void OnIncomingTransferRequested(object? sender, TransferSessionMetadata metadata)
         {
-            Application.Current.Dispatcher.Invoke(async () =>
+            Application.Current.Dispatcher.Invoke(() =>
             {
-                var msg = $"{metadata.SenderName} veut vous envoyer {metadata.TotalFiles} fichiers ({(metadata.TotalSize / 1024 / 1024)} Mo).\nAccepter ?";
-                SetState(TransferWorkflowState.TransferNegotiation, "Réception demandée : validation du transfert.");
-
-                if (MessageBox.Show(msg, "Réception", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                {
-                    var decision = await _transferService.AcceptTransferAsync(metadata, null, CancellationToken.None);
-                    metadata.NegotiationStatus = TransferNegotiationStatus.Accepted;
-                    metadata.SessionState = TransferSessionState.ReadyToSend;
-                    metadata.TargetFolder = decision.DestinationFolder;
-
-                    _ctsTransfert = new();
-                    string destPath = string.IsNullOrWhiteSpace(decision.DestinationFolder)
-                        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P")
-                        : decision.DestinationFolder;
-                    Directory.CreateDirectory(destPath);
-
-                    var progress = new Progress<FileTransferProgress>(p =>
-                    {
-                        TransferProgress = p.Percentage;
-                        SetState(TransferWorkflowState.Receiving, $"Réception : {p.CurrentFileName} ({p.Percentage:0.0}%)");
-                        ProgressText = $"Réception : {p.CurrentFileName} ({p.Percentage:0.0}%)";
-                    });
-
-                    try
-                    {
-                        await _transferService.DownloadSessionAsync(metadata, destPath, progress, _ctsTransfert.Token);
-                        SetState(TransferWorkflowState.Completed, "Transfert terminé avec succès !");
-                        ProgressText = "Transfert terminé avec succès !";
-                    }
-                    catch (Exception ex)
-                    {
-                        SetState(TransferWorkflowState.Error, "Erreur de téléchargement : " + ex.Message);
-                        ProgressText = "Erreur de téléchargement : " + ex.Message;
-                    }
-                }
-                else
-                {
-                    metadata.NegotiationStatus = TransferNegotiationStatus.Refused;
-                    metadata.SessionState = TransferSessionState.Cancelled;
-                    SetState(TransferWorkflowState.Cancelled, "Transfert refusé par l’utilisateur.");
-                }
+                IncomingTransferSession = metadata;
+                SetState(TransferWorkflowState.TransferNegotiation, $"Demande de réception de {metadata.SenderName}.");
+                ProgressText = $"Réception : {metadata.TotalFiles} élément(s) - {FormatSize(metadata.TotalSize)}";
+                OnPropertyChanged(nameof(TransferRequestSummary));
             });
+        }
+
+        private async Task AcceptIncomingTransferAsync()
+        {
+            if (IncomingTransferSession == null)
+            {
+                return;
+            }
+
+            var metadata = IncomingTransferSession;
+            try
+            {
+                var decision = await _transferService.AcceptTransferAsync(metadata, null, CancellationToken.None);
+                metadata.NegotiationStatus = TransferNegotiationStatus.Accepted;
+                metadata.SessionState = TransferSessionState.ReadyToSend;
+                metadata.TargetFolder = decision.DestinationFolder;
+
+                _ctsTransfert = new();
+                string destPath = string.IsNullOrWhiteSpace(decision.DestinationFolder)
+                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P")
+                    : decision.DestinationFolder;
+                Directory.CreateDirectory(destPath);
+
+                var progress = new Progress<FileTransferProgress>(p =>
+                {
+                    TransferProgress = p.Percentage;
+                    SetState(TransferWorkflowState.Receiving, $"Réception : {p.CurrentFileName} ({p.Percentage:0.0}%)");
+                    ProgressText = $"Réception : {p.CurrentFileName} ({p.Percentage:0.0}%)";
+                });
+
+                await _transferService.DownloadSessionAsync(metadata, destPath, progress, _ctsTransfert.Token);
+                SetState(TransferWorkflowState.Completed, "Transfert terminé avec succès !");
+                ProgressText = "Transfert terminé avec succès !";
+                ClearTransferRequest();
+            }
+            catch (Exception ex)
+            {
+                SetState(TransferWorkflowState.Error, "Erreur de téléchargement : " + ex.Message);
+                ProgressText = "Erreur de téléchargement : " + ex.Message;
+            }
+        }
+
+        private void RejectIncomingTransfer()
+        {
+            if (IncomingTransferSession == null)
+            {
+                return;
+            }
+
+            IncomingTransferSession.NegotiationStatus = TransferNegotiationStatus.Refused;
+            IncomingTransferSession.SessionState = TransferSessionState.Cancelled;
+            SetState(TransferWorkflowState.Cancelled, "Transfert refusé par l’utilisateur.");
+            ClearTransferRequest();
+        }
+
+        private void CancelActiveTransfer()
+        {
+            _ctsTransfert?.Cancel();
+            if (IncomingTransferSession != null)
+            {
+                IncomingTransferSession.NegotiationStatus = TransferNegotiationStatus.Cancelled;
+                IncomingTransferSession.SessionState = TransferSessionState.Cancelled;
+            }
+
+            SetState(TransferWorkflowState.Cancelled, "Transfert annulé par l’utilisateur.");
+            ClearTransferRequest();
+        }
+
+        private void ClearTransferRequest()
+        {
+            IncomingTransferSession = null;
+            TransferProgress = 0;
+            OnPropertyChanged(nameof(IsTransferRequestVisible));
+            OnPropertyChanged(nameof(TransferRequestSummary));
+            ((RelayCommand)AcceptTransferCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)RejectTransferCommand).RaiseCanExecuteChanged();
         }
 
         private void RefreshPeer(WifiDirectPeer peer)
