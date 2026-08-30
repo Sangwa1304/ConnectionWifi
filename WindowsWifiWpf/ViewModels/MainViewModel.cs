@@ -39,8 +39,27 @@ namespace WindowsWifiWpf.ViewModels
         public TransferWorkflowState CurrentState
         {
             get => _currentState;
-            set { _currentState = value; OnPropertyChanged(nameof(CurrentState)); }
+            set
+            {
+                _currentState = value;
+                OnPropertyChanged(nameof(CurrentState));
+                OnPropertyChanged(nameof(CurrentStateDisplayText));
+            }
         }
+
+        public string CurrentStateDisplayText => CurrentState switch
+        {
+            TransferWorkflowState.DiscoveringPeers => "Recherche des appareils",
+            TransferWorkflowState.PeerSelected => "Appareil sélectionné",
+            TransferWorkflowState.PairingRequested => "Appairage en cours",
+            TransferWorkflowState.TransferNegotiation => "Négociation du transfert",
+            TransferWorkflowState.Sending => "Envoi en cours",
+            TransferWorkflowState.Receiving => "Réception en cours",
+            TransferWorkflowState.Completed => "Terminé",
+            TransferWorkflowState.Cancelled => "Annulé",
+            TransferWorkflowState.Error => "Erreur",
+            _ => "Prêt"
+        };
 
         private string _selectedPeerName = "Aucun appareil sélectionné";
         public string SelectedPeerName
@@ -196,6 +215,7 @@ namespace WindowsWifiWpf.ViewModels
         {
             PendingFiles.Clear();
             UpdateDropStatus();
+            SetState(TransferWorkflowState.Idle, "Aucun élément sélectionné. Ajoutez un fichier ou un dossier.");
             Reload();
         }
 
@@ -204,6 +224,10 @@ namespace WindowsWifiWpf.ViewModels
             if (file == null) return;
             PendingFiles.Remove(file);
             UpdateDropStatus();
+            if (PendingFiles.Count == 0)
+            {
+                SetState(TransferWorkflowState.Idle, "Aucun élément sélectionné. Ajoutez un fichier ou un dossier.");
+            }
         }
 
         private async Task ConnectAndSendAsync(WifiDirectPeer? target)
@@ -249,22 +273,54 @@ namespace WindowsWifiWpf.ViewModels
             await Task.CompletedTask;
         }
 
-        private void AddToSender(string[] files)
+        public void AddFiles(IEnumerable<string>? files)
         {
+            if (files == null)
+            {
+                return;
+            }
+
             Application.Current.Dispatcher.Invoke(() =>
             {
-                PendingFiles.Clear();
-                var r = from f in files where !string.IsNullOrWhiteSpace(f?.Trim()) && File.Exists(f) || Directory.Exists(f) select new FileI(f);
-                foreach (var t in r)
+                var added = 0;
+                foreach (var rawPath in files.Where(p => !string.IsNullOrWhiteSpace(p)))
                 {
-                    PendingFiles.Add(t);
+                    var candidate = rawPath.Trim();
+                    if (!File.Exists(candidate) && !Directory.Exists(candidate))
+                    {
+                        continue;
+                    }
+
+                    var normalized = Path.GetFullPath(candidate);
+                    if (PendingFiles.Any(item => string.Equals(item.PathFile, normalized, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        continue;
+                    }
+
+                    PendingFiles.Add(new FileI(normalized));
+                    added++;
                 }
+
                 UpdateDropStatus();
+                if (added > 0)
+                {
+                    SetState(TransferWorkflowState.PeerSelected, $"{PendingFiles.Count} élément(s) préparé(s). Sélectionnez un appareil.");
+                }
+                else
+                {
+                    MessageText = "Aucun élément valide n'a été ajouté.";
+                }
+
                 if (_ctsWatcher == null || _ctsWatcher.IsCancellationRequested)
                 {
                     Reload();
                 }
             });
+        }
+
+        private void AddToSender(string[] files)
+        {
+            AddFiles(files);
         }
 
         private void UpdateDropStatus()

@@ -39,6 +39,10 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
+                            <TextBlock Text="Statut : " Foreground="#CBD5E1" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding CurrentStateDisplayText}" Foreground="#38BDF8" FontWeight="SemiBold" />
+                        </StackPanel>
                         <Button x:Name="BtBrwonser"
                             Background="transparent"
                             Cursor = "Hand"
@@ -51,25 +55,21 @@
                             BorderBrush="#FF0B1431"
                             Command="{Binding BrowseCommand}"/>
                         <StackPanel Orientation="Vertical">
-                            <!--Button x:Name="BtBrwonser"
-                                Background="transparent"
-                                Cursor = "Hand"
-                                Visibility="Visible"
-                                FontSize="20"
-                                FontWeight="SemiBold"
-                                Foreground="#FF1062D6"
-                                HorizontalAlignment="center"
-                                Content="Glissez Deposez ou cliquez ici..."
-                                BorderBrush="#FF0B1431"
-                                Click="BrowseButton_Click"/-->
                             <TextBlock
                                 x:Name="DropStatusText"
                                 HorizontalAlignment="Center"
                                 Foreground="#38BDF8"
                                 FontWeight="SemiBold"
-                                                            Text="{Binding DropStatusText}"/>
-                            </StackPanel>
-                        
+                                Text="{Binding DropStatusText}"/>
+                            <Button
+                                Margin="0,10,0,0"
+                                Content="Scanner"
+                                Command="{Binding ScanCommand}"
+                                Foreground="White"
+                                Background="#1D4ED8"
+                                Padding="14,6"
+                                HorizontalAlignment="Center"/>
+                        </StackPanel>
                     </StackPanel>
                     <Border
                         x:Name="cleaner"
@@ -191,21 +191,24 @@
                     HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Hidden">
                     <StackPanel>
-                        <Button
-                            Command="{Binding ReloadCommand}"
-                            Content="retry"
-                            FontWeight="Bold"
-                            FontSize="14"
-                            Background="transparent"
-                            Cursor="Hand"
-                            Foreground="Green">
-                            <Button.Resources>
-                                <Style TargetType="Border">
-                                    <Setter Property="CornerRadius"
-                                            Value="8"/>
-                                </Style>
-                            </Button.Resources>
-                        </Button>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button
+                                Command="{Binding ReloadCommand}"
+                                Content="Relancer la recherche"
+                                FontWeight="Bold"
+                                FontSize="14"
+                                Background="#0F766E"
+                                Cursor="Hand"
+                                Foreground="White"
+                                Padding="12,6">
+                                <Button.Resources>
+                                    <Style TargetType="Border">
+                                        <Setter Property="CornerRadius" Value="8"/>
+                                    </Style>
+                                </Button.Resources>
+                            </Button>
+                            <TextBlock Text="{Binding SelectedPeerName}" Foreground="#E2E8F0" Margin="12,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
                         <ItemsControl x:Name="DevicesItemsControl" ItemsSource="{Binding DiscoveredDevices}">
 
                             <ItemsControl.ItemsPanel>
