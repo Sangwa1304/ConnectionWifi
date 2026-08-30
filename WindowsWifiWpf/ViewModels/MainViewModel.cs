@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -82,8 +83,24 @@ namespace WindowsWifiWpf.ViewModels
         private string _progressText = "En attente...";
         public string ProgressText { get => _progressText; set { _progressText = value; OnPropertyChanged(nameof(ProgressText)); } }
 
+        private string _downloadFolder = GetDefaultDownloadFolder();
+        public string DownloadFolder
+        {
+            get => _downloadFolder;
+            set
+            {
+                _downloadFolder = string.IsNullOrWhiteSpace(value) ? GetDefaultDownloadFolder() : value;
+                OnPropertyChanged(nameof(DownloadFolder));
+                OnPropertyChanged(nameof(DownloadFolderDisplay));
+            }
+        }
+
+        public string DownloadFolderDisplay => string.IsNullOrWhiteSpace(DownloadFolder) ? "Dossier par défaut" : DownloadFolder;
+
         private double _transferProgress;
         public double TransferProgress { get => _transferProgress; set { _transferProgress = value; OnPropertyChanged(nameof(TransferProgress)); } }
+
+        public bool HasRecentTransfers => RecentTransfers.Count > 0;
 
         private TransferSessionMetadata? _incomingTransferSession;
         public TransferSessionMetadata? IncomingTransferSession
@@ -186,8 +203,11 @@ namespace WindowsWifiWpf.ViewModels
             AcceptTransferCommand = new RelayCommand(async _ => await AcceptIncomingTransferAsync(), _ => IncomingTransferSession != null);
             RejectTransferCommand = new RelayCommand(_ => RejectIncomingTransfer(), _ => IncomingTransferSession != null);
             CancelTransferCommand = new RelayCommand(_ => CancelActiveTransfer(), _ => CurrentState == TransferWorkflowState.Sending || CurrentState == TransferWorkflowState.Receiving || CurrentState == TransferWorkflowState.TransferNegotiation);
+            OpenDownloadFolderCommand = new RelayCommand(_ => OpenDownloadFolder(), _ => !string.IsNullOrWhiteSpace(DownloadFolder));
+            ClearTransferHistoryCommand = new RelayCommand(_ => ClearTransferHistory(), _ => RecentTransfers.Count > 0);
 
             PendingFiles.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasPendingFiles)); OnPropertyChanged(nameof(NoPendingFiles)); UpdateDropStatus(); };
+            RecentTransfers.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasRecentTransfers)); ((RelayCommand)ClearTransferHistoryCommand).RaiseCanExecuteChanged(); };
 
             SetState(TransferWorkflowState.Idle, "Prêt à démarrer un transfert.");
         }
@@ -224,6 +244,43 @@ namespace WindowsWifiWpf.ViewModels
             }
 
             return $"{value:0.##} {units[index]}";
+        }
+
+        private static string GetDefaultDownloadFolder()
+            => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P");
+
+        private void OpenDownloadFolder()
+        {
+            var targetFolder = string.IsNullOrWhiteSpace(DownloadFolder) ? GetDefaultDownloadFolder() : DownloadFolder;
+            Directory.CreateDirectory(targetFolder);
+            Process.Start(new ProcessStartInfo { FileName = targetFolder, UseShellExecute = true });
+        }
+
+        private void ClearTransferHistory()
+        {
+            RecentTransfers.Clear();
+            OnPropertyChanged(nameof(HasRecentTransfers));
+        }
+
+        private void AppendTransferHistory(string senderName, string type, string status, string destinationPath, long size)
+        {
+            RecentTransfers.Insert(0, new TransferHistoryEntry
+            {
+                Name = senderName,
+                Type = type,
+                Status = status,
+                Path = destinationPath,
+                Size = size,
+                Timestamp = DateTime.Now
+            });
+
+            while (RecentTransfers.Count > 8)
+            {
+                RecentTransfers.RemoveAt(RecentTransfers.Count - 1);
+            }
+
+            OnPropertyChanged(nameof(HasRecentTransfers));
+            ((RelayCommand)ClearTransferHistoryCommand).RaiseCanExecuteChanged();
         }
 
         // ---- ICommand implementations delegate helpers ----
@@ -479,15 +536,16 @@ namespace WindowsWifiWpf.ViewModels
             var metadata = IncomingTransferSession;
             try
             {
-                var decision = await _transferService.AcceptTransferAsync(metadata, null, CancellationToken.None);
+                var decision = await _transferService.AcceptTransferAsync(metadata, DownloadFolder, CancellationToken.None);
                 metadata.NegotiationStatus = TransferNegotiationStatus.Accepted;
                 metadata.SessionState = TransferSessionState.ReadyToSend;
                 metadata.TargetFolder = decision.DestinationFolder;
 
                 _ctsTransfert = new();
                 string destPath = string.IsNullOrWhiteSpace(decision.DestinationFolder)
-                    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P")
+                    ? DownloadFolder
                     : decision.DestinationFolder;
+                DownloadFolder = destPath;
                 Directory.CreateDirectory(destPath);
 
                 var progress = new Progress<FileTransferProgress>(p =>
@@ -498,12 +556,14 @@ namespace WindowsWifiWpf.ViewModels
                 });
 
                 await _transferService.DownloadSessionAsync(metadata, destPath, progress, _ctsTransfert.Token);
+                AppendTransferHistory(metadata.SenderName, "Réception", "Terminé", destPath, metadata.TotalSize);
                 SetState(TransferWorkflowState.Completed, "Transfert terminé avec succès !");
                 ProgressText = "Transfert terminé avec succès !";
                 ClearTransferRequest();
             }
             catch (Exception ex)
             {
+                AppendTransferHistory(metadata.SenderName, "Réception", "Erreur", DownloadFolder, metadata.TotalSize);
                 SetState(TransferWorkflowState.Error, "Erreur de téléchargement : " + ex.Message);
                 ProgressText = "Erreur de téléchargement : " + ex.Message;
             }
@@ -516,8 +576,10 @@ namespace WindowsWifiWpf.ViewModels
                 return;
             }
 
+            var metadata = IncomingTransferSession;
             IncomingTransferSession.NegotiationStatus = TransferNegotiationStatus.Refused;
             IncomingTransferSession.SessionState = TransferSessionState.Cancelled;
+            AppendTransferHistory(metadata.SenderName, "Réception", "Refusé", DownloadFolder, metadata.TotalSize);
             SetState(TransferWorkflowState.Cancelled, "Transfert refusé par l’utilisateur.");
             ClearTransferRequest();
         }
@@ -529,6 +591,7 @@ namespace WindowsWifiWpf.ViewModels
             {
                 IncomingTransferSession.NegotiationStatus = TransferNegotiationStatus.Cancelled;
                 IncomingTransferSession.SessionState = TransferSessionState.Cancelled;
+                AppendTransferHistory(IncomingTransferSession.SenderName, "Réception", "Annulé", DownloadFolder, IncomingTransferSession.TotalSize);
             }
 
             SetState(TransferWorkflowState.Cancelled, "Transfert annulé par l’utilisateur.");

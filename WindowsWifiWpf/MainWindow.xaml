@@ -202,6 +202,16 @@
                             </StackPanel>
                         </Border>
 
+                        <Border Background="#111827" CornerRadius="10" Padding="10" Margin="0,0,0,10">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                    <TextBlock Text="Dossier de réception :" Foreground="#E2E8F0" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding DownloadFolderDisplay}" Foreground="#38BDF8" TextTrimming="CharacterEllipsis" Width="400"/>
+                                </StackPanel>
+                                <Button Content="Ouvrir le dossier" Command="{Binding OpenDownloadFolderCommand}" Background="#0EA5E9" Foreground="White" Padding="12,6" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Border>
+
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <Button
                                 Command="{Binding ReloadCommand}"
@@ -220,6 +230,27 @@
                             </Button>
                             <TextBlock Text="{Binding SelectedPeerName}" Foreground="#E2E8F0" Margin="12,0,0,0" VerticalAlignment="Center" />
                         </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,8">
+                            <TextBlock Text="Historique" Foreground="#F8FAFC" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <Button Content="Effacer" Command="{Binding ClearTransferHistoryCommand}" Visibility="{Binding HasRecentTransfers, Converter={StaticResource BoolToVis}}" Background="#374151" Foreground="White" Margin="12,0,0,0" Padding="10,4"/>
+                        </StackPanel>
+                        <ItemsControl x:Name="RecentTransfersItemsControl" ItemsSource="{Binding RecentTransfers}" Visibility="{Binding HasRecentTransfers, Converter={StaticResource BoolToVis}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,2,0,2" Padding="8" Background="#0F172A" CornerRadius="8">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" Foreground="#F8FAFC" FontWeight="SemiBold"/>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Type}" Foreground="#93C5FD" Margin="0,0,8,0"/>
+                                                <TextBlock Text="{Binding Status}" Foreground="#22C55E"/>
+                                            </StackPanel>
+                                            <TextBlock Text="{Binding DisplaySize}" Foreground="#CBD5E1"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
                         <ItemsControl x:Name="DevicesItemsControl" ItemsSource="{Binding DiscoveredDevices}">
 
                             <ItemsControl.ItemsPanel>
