@@ -8,7 +8,6 @@ namespace WindowsWifiLibrary.Core.Services;
 
 public class FileTransferService : IFileTransferService 
 { 
-    public event EventHandler<PeerDevice>? DeviceDiscovered; 
     public event EventHandler<TransferSessionMetadata>? IncomingTransferRequested; 
 
     private HttpListener? _listener; 
@@ -99,6 +98,8 @@ public class FileTransferService : IFileTransferService
         {
             session.SessionState = TransferSessionState.Cancelled;
             session.NegotiationStatus = TransferNegotiationStatus.Cancelled;
+            session.ErrorMessage ??= "Le transfert a été annulé.";
+            _activeSessions.Remove(sessionId);
         }
 
         _servedFiles.Clear();

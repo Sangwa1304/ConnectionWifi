@@ -162,35 +162,8 @@ namespace WindowsWifiWpf.ViewModels
             _wifiService = new();
             _transferService = new();
 
-            // Initialize and wire events
-            try
-            {
-                _wifiService.InitializeAsync().Wait();
-                if (!_wifiService.IsHardwareSupported)
-                {
-                    _wifiService.Stop();
-                    MessageText = "Hardware Wi-Fi Direct non supporté";
-                }
-                else
-                {
-                    _wifiService.StatusChanged += WifiService_StatusChanged;
-                    _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
-                    _wifiService.PeerUpdated += WifiService_PeerUpdated;
-                    _wifiService.PeerRemoved += WifiService_PeerRemoved;
-                    _wifiService.InvitationReceived += WifiService_InvitationReceived;
-                    _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
-                    _wifiService.ConnectionClosed += WifiService_ConnectionClosed;
-
-                    _transferService.IncomingTransferRequested += OnIncomingTransferRequested;
-
-                    _wifiService.StartPublishingAsync();
-                    _wifiService.StartSubscribingAsync(CancellationToken.None);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageText = "Initialisation impossible : " + ex.Message;
-            }
+            WireEvents();
+            _ = InitializeAsync();
 
             // Commands
             BrowseCommand = new RelayCommand(async _ => await ExecuteBrowseAsync());
@@ -210,6 +183,42 @@ namespace WindowsWifiWpf.ViewModels
             RecentTransfers.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasRecentTransfers)); ((RelayCommand)ClearTransferHistoryCommand).RaiseCanExecuteChanged(); };
 
             SetState(TransferWorkflowState.Idle, "Prêt à démarrer un transfert.");
+        }
+
+        private void WireEvents()
+        {
+            _wifiService.StatusChanged += WifiService_StatusChanged;
+            _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
+            _wifiService.PeerUpdated += WifiService_PeerUpdated;
+            _wifiService.PeerRemoved += WifiService_PeerRemoved;
+            _wifiService.InvitationReceived += WifiService_InvitationReceived;
+            _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
+            _wifiService.ConnectionClosed += WifiService_ConnectionClosed;
+            _transferService.IncomingTransferRequested += OnIncomingTransferRequested;
+        }
+
+        private async Task InitializeAsync()
+        {
+            try
+            {
+                var initialized = await _wifiService.InitializeAsync();
+                if (!initialized || !_wifiService.IsHardwareSupported)
+                {
+                    _wifiService.Stop();
+                    MessageText = "Hardware Wi-Fi Direct non supporté";
+                    SetState(TransferWorkflowState.Error, "Hardware Wi‑Fi Direct non supporté.");
+                    return;
+                }
+
+                _wifiService.StartPublishingAsync();
+                _wifiService.StartSubscribingAsync(CancellationToken.None);
+                MessageText = "Service Wi‑Fi Direct prêt.";
+            }
+            catch (Exception ex)
+            {
+                MessageText = "Initialisation impossible : " + ex.Message;
+                SetState(TransferWorkflowState.Error, "Initialisation impossible : " + ex.Message);
+            }
         }
 
         private void StartDiscovery()

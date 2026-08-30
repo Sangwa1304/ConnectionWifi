@@ -4,7 +4,6 @@ namespace WindowsWifiLibrary.Core.Interfaces;
 
 public interface IFileTransferService
 {
-    event EventHandler<PeerDevice> DeviceDiscovered;
     event EventHandler<TransferSessionMetadata> IncomingTransferRequested;
 
     Task StartListeningAsync(string localIp, int port, CancellationToken cancellationToken);
