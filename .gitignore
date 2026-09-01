@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+#others
+.editorconfig
+
 #cache for user
 .cache
 

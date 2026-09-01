@@ -1,5 +1,5 @@
 <Solution>
-  <Project Path="WindowsWifiLibrary.Core/WindowsWifiLibrary.Core.csproj" />
-  <Project Path="WindowsWifiLibrary/WindowsWifiLibrary.csproj" />
-  <Project Path="WindowsWifiWpf/WindowsWifiWpf.csproj" />
+  <Project Path="WindowsWifiLibrary.Core/WindowsWifiLibrary.Core.csproj"/>
+  <Project Path="WindowsWifiLibrary/WindowsWifiLibrary.csproj"/>
+  <Project Path="WindowsWifiWpf/WindowsWifiWpf.csproj"/>
 </Solution>
