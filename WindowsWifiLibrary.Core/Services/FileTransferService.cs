@@ -12,6 +12,10 @@ public class FileTransferService : IFileTransferService
 
     private HttpListener? _listener;
     private CancellationTokenSource? _listenerCts;
+
+    // Aligne l'ID de session à sa promesse de complétion réseau
+    private readonly Dictionary<string, TaskCompletionSource<TransferDecision>> _pairingRequests = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, string> _servedFiles = []; // Mappe le RelativePath au FullLocalPath
     private readonly Dictionary<string, TransferSessionMetadata> _activeSessions = new(StringComparer.OrdinalIgnoreCase);
 
@@ -70,7 +74,7 @@ public class FileTransferService : IFileTransferService
         return Task.FromResult(result);
     }
 
-    public Task<TransferDecision> AcceptTransferAsync(TransferSessionMetadata session, string? destinationFolder, CancellationToken cancellationToken)
+    public async Task<TransferDecision> AcceptTransferAsync(TransferSessionMetadata session, string? destinationFolder, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -86,8 +90,25 @@ public class FileTransferService : IFileTransferService
         session.NegotiationStatus = TransferNegotiationStatus.Accepted;
         session.SessionState = TransferSessionState.ReadyToSend;
         session.TargetFolder = decision.DestinationFolder;
-        return Task.FromResult(decision);
+
+        // Envoi de la notification HTTP à l'expéditeur original
+        try
+        {
+            using var client = new HttpClient();
+            string url = $"http://{session.SenderIp}:{session.SenderPort}/api/transfer/accept?sessionId={session.SessionId}";
+            await client.PostAsJsonAsync(url, decision, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            session.SessionState = TransferSessionState.Failed;
+            session.NegotiationStatus = TransferNegotiationStatus.Error;
+            session.ErrorMessage = $"Impossible de notifier l'expéditeur : {ex.Message}";
+            decision.Accepted = false;
+        }
+
+        return decision;
     }
+
 
     public Task CancelSessionAsync(string sessionId, CancellationToken cancellationToken)
     {
@@ -140,18 +161,28 @@ public class FileTransferService : IFileTransferService
                     response.StatusCode = (int)HttpStatusCode.BadRequest;
                 }
             }
-            else if (request.HttpMethod == "GET" && request.Url?.AbsolutePath == "/api/transfer/download")
+            else if (request.HttpMethod == "POST" && request.Url?.AbsolutePath == "/api/transfer/accept")
             {
-                string relativePath = request.QueryString["path"] ?? string.Empty;
-                if (_servedFiles.TryGetValue(relativePath, out var fullPath) && File.Exists(fullPath))
+                using var reader = new StreamReader(request.InputStream);
+                var payload = await reader.ReadToEndAsync();
+                var decision = JsonSerializer.Deserialize<TransferDecision>(payload);
+                string sessionId = request.QueryString["sessionId"] ?? string.Empty;
+
+                if (decision != null && !string.IsNullOrWhiteSpace(sessionId))
                 {
-                    await ServeFileChunkAsync(request, response, fullPath);
+                    if (_pairingRequests.TryGetValue(sessionId, out var tcs))
+                    {
+                        tcs.TrySetResult(decision);
+                        _pairingRequests.Remove(sessionId);
+                    }
+                    response.StatusCode = (int)HttpStatusCode.OK;
                 }
                 else
                 {
-                    response.StatusCode = (int)HttpStatusCode.NotFound;
+                    response.StatusCode = (int)HttpStatusCode.BadRequest;
                 }
             }
+
             else if (request.HttpMethod == "POST" && request.Url?.AbsolutePath == "/api/transfer/accept")
             {
                 response.StatusCode = (int)HttpStatusCode.Accepted;
@@ -273,9 +304,53 @@ public class FileTransferService : IFileTransferService
     public async Task<bool> RequestPairingAsync(PeerDevice targetDevice, TransferSessionMetadata metadata, CancellationToken cancellationToken)
     {
         using var client = new HttpClient();
-        var response = await client.PostAsJsonAsync($"http://{targetDevice.IpAddress}:{targetDevice.Port}/api/transfer/request", metadata, cancellationToken);
-        return response.IsSuccessStatusCode;
+        var tcs = new TaskCompletionSource<TransferDecision>();
+        _pairingRequests[metadata.SessionId] = tcs;
+
+        try
+        {
+            metadata.SessionState = TransferSessionState.Negotiating;
+            var response = await client.PostAsJsonAsync($"http://{targetDevice.IpAddress}:{targetDevice.Port}/api/transfer/request", metadata, cancellationToken);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _pairingRequests.Remove(metadata.SessionId);
+                metadata.SessionState = TransferSessionState.Failed;
+                return false;
+            }
+
+            // Bloque l'expéditeur proprement sans figer l'application jusqu'à la réponse du récepteur
+            using (cancellationToken.Register(() => tcs.TrySetCanceled()))
+            {
+                TransferDecision decision = await tcs.Task;
+                if (decision.Accepted)
+                {
+                    metadata.SessionState = TransferSessionState.ReadyToSend;
+                    metadata.NegotiationStatus = TransferNegotiationStatus.Accepted;
+                    metadata.TargetFolder = decision.DestinationFolder;
+                    return true;
+                }
+                else
+                {
+                    metadata.SessionState = TransferSessionState.Cancelled;
+                    metadata.NegotiationStatus = TransferNegotiationStatus.Refused;
+                    metadata.ErrorMessage = decision.Reason ?? "Le transfert a été refusé par le destinataire.";
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            metadata.SessionState = TransferSessionState.Failed;
+            metadata.ErrorMessage = ex.Message;
+            return false;
+        }
+        finally
+        {
+            _pairingRequests.Remove(metadata.SessionId);
+        }
     }
+
 
     public async Task DownloadSessionAsync(TransferSessionMetadata session, string destinationFolder, IProgress<FileTransferProgress> progress, CancellationToken cancellationToken)
     {

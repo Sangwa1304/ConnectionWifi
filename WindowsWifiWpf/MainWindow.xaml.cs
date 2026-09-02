@@ -10,7 +10,6 @@ public partial class MainWindow : Window
         InitializeComponent();
         DataContext = new MainViewModel();
 
-        AllowDrop = true;
         DragEnter += OnDragEnter;
         DragOver += OnDragOver;
         Drop += OnDrop;
@@ -38,9 +37,11 @@ public partial class MainWindow : Window
     {
         if (e.Data.GetDataPresent(DataFormats.FileDrop) && DataContext is MainViewModel viewModel)
         {
-            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
-            viewModel.AddFiles(files);
-            e.Handled = true;
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
+            {
+                viewModel.AddFiles(files);
+                e.Handled = true;
+            }
         }
     }
 }

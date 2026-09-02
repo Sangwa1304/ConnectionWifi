@@ -1,3 +1,5 @@
+using System;
+
 namespace WindowsWifiWpf.Models;
 
 public sealed class TransferHistoryEntry
@@ -17,3 +19,4 @@ public sealed class TransferHistoryEntry
         _ => $"{Size / (1024.0 * 1024 * 1024):0.##} Go"
     };
 }
+

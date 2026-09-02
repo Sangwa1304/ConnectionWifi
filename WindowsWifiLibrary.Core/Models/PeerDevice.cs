@@ -8,4 +8,5 @@ public class PeerDevice
     public string IpAddress { get; set; } = string.Empty;
     public bool IsAvailable { get; set; } = true;
     public string Status { get; set; } = "Available";
+    
 }
