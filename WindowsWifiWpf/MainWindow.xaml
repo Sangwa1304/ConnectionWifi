@@ -20,8 +20,25 @@
 
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
+        <local:StatusToColorConverter x:Key="StatusToColor" />
 
-        <!--  Style pour les Boutons Principaux avec Animation Fluide  -->
+        <!-- Animation d'entrée fluide (Fade-In et Translation) pour la liste des fichiers et demandes -->
+        <Storyboard x:Key="FluidEntranceAnimation">
+            <DoubleAnimation
+                Storyboard.TargetProperty="Opacity"
+                From="0" To="1"
+                Duration="0:0:0.45" />
+            <DoubleAnimation
+                Storyboard.TargetProperty="(RenderTransform).(TranslateTransform.Y)"
+                From="15" To="0"
+                Duration="0:0:0.45">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+
+        <!-- Style pour les Boutons Principaux avec États Visuels Réactifs -->
         <Style x:Key="CaptivatingButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#2563EB" />
             <Setter Property="Foreground" Value="White" />
@@ -39,35 +56,20 @@
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
-                            <EventTrigger RoutedEvent="MouseEnter">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <ColorAnimation
-                                            Storyboard.TargetName="border"
-                                            Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
-                                            To="#1D4ED8"
-                                            Duration="0:0:0.2" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                            <EventTrigger RoutedEvent="MouseLeave">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <ColorAnimation
-                                            Storyboard.TargetName="border"
-                                            Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
-                                            To="#2563EB"
-                                            Duration="0:0:0.2" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#1D4ED8" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Background" Value="#334155" />
+                                <Setter Property="Foreground" Value="#94A3B8" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <!--  Style pour la Zone de Drag & Drop Interactive Compatible Noesis  -->
+        <!-- Style Cyber-Réactif de la Zone Drag & Drop Piloté par le ViewModel -->
         <Style x:Key="DropZoneButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#1E293B" />
             <Setter Property="Template">
@@ -87,38 +89,21 @@
                             </Border>
                         </Grid>
                         <ControlTemplate.Triggers>
-                            <EventTrigger RoutedEvent="MouseEnter">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <ColorAnimation
-                                            Storyboard.TargetName="dropBorder"
-                                            Storyboard.TargetProperty="(Rectangle.Fill).(SolidColorBrush.Color)"
-                                            To="#0F172A"
-                                            Duration="0:0:0.2" />
-                                        <ColorAnimation
-                                            Storyboard.TargetName="dropBorder"
-                                            Storyboard.TargetProperty="(Rectangle.Stroke).(SolidColorBrush.Color)"
-                                            To="#38BDF8"
-                                            Duration="0:0:0.2" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
-                            <EventTrigger RoutedEvent="MouseLeave">
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <ColorAnimation
-                                            Storyboard.TargetName="dropBorder"
-                                            Storyboard.TargetProperty="(Rectangle.Fill).(SolidColorBrush.Color)"
-                                            To="#1E293B"
-                                            Duration="0:0:0.2" />
-                                        <ColorAnimation
-                                            Storyboard.TargetName="dropBorder"
-                                            Storyboard.TargetProperty="(Rectangle.Stroke).(SolidColorBrush.Color)"
-                                            To="#334155"
-                                            Duration="0:0:0.2" />
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </EventTrigger>
+                            <!-- Survol effectif d'un fichier physique au-dessus de l'application -->
+                            <DataTrigger Binding="{Binding IsFileOverDropZone}" Value="True">
+                                <Setter TargetName="dropBorder" Property="Fill" Value="#0A1224" />
+                                <Setter TargetName="dropBorder" Property="Stroke" Value="#38BDF8" />
+                                <Setter TargetName="dropBorder" Property="StrokeThickness" Value="2.5" />
+                            </DataTrigger>
+                            <!-- Survol standard à la souris seule -->
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsFileOverDropZone}" Value="False" />
+                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="dropBorder" Property="Fill" Value="#1E293B" />
+                                <Setter TargetName="dropBorder" Property="Stroke" Value="#475569" />
+                            </MultiDataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -134,7 +119,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!--  EN-TÊTE ULTRA-MODERNE : STATUT GLOBAL  -->
+        <!-- EN-TÊTE ULTRA-MODERNE : STATUT GLOBAL -->
         <Border
             Grid.Row="0"
             Margin="0,0,0,15"
@@ -172,7 +157,7 @@
                         FontSize="11"
                         FontWeight="Black"
                         Foreground="#64748B"
-                        Text="RÉSEAU P2P ACTIVÉ  |" />
+                        Text="RÉSEAU P2P ACTIVÉ |" />
                     <TextBlock
                         Margin="10,0,0,0"
                         FontSize="14"
@@ -192,26 +177,30 @@
                         Text="Dossier : " />
                     <TextBlock
                         Margin="5,0"
+                        MaxWidth="150"
                         VerticalAlignment="Center"
                         FontSize="12"
                         FontWeight="SemiBold"
                         Foreground="#E2E8F0"
-                        Text="{Binding DownloadFolderDisplay}" />
+                        Text="{Binding DownloadFolderDisplay}"
+                        TextTrimming="CharacterEllipsis"
+                        ToolTip="{Binding DownloadFolder}" />
                     <Button
                         Margin="10,0,0,0"
                         Padding="10,4"
                         Background="#1E293B"
-                        Command="{Binding OpenDownloadFolderCommand}"
+                        Command="{Binding ChangeFolderCommand}"
                         Content="Changer"
                         Cursor="Hand"
                         FontSize="11"
-                        Foreground="#94A3B8" />
+                        Style="{StaticResource CaptivatingButtonStyle}" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!--  ZONE INTERACTIVE : GLISSER-DÉPOSER ET LISTE  -->
+        <!-- ZONE INTERACTIVE : GLISSER-DÉPOSER ET LISTE DES FICHIERS -->
         <Grid Grid.Row="1" Margin="0,0,0,10">
+            <!-- Zone d'invite par défaut (Si aucun fichier n'est en attente) -->
             <Button
                 Command="{Binding BrowseCommand}"
                 Style="{StaticResource DropZoneButtonStyle}"
@@ -237,6 +226,7 @@
                 </StackPanel>
             </Button>
 
+            <!-- Liste des fichiers avec animation fluide d'apparition lors du chargement -->
             <Border
                 Padding="15"
                 Background="#111827"
@@ -244,6 +234,20 @@
                 BorderThickness="1"
                 CornerRadius="12"
                 Visibility="{Binding HasPendingFiles, Converter={StaticResource BoolToVis}}">
+                <Border.RenderTransform>
+                    <TranslateTransform Y="0"/>
+                </Border.RenderTransform>
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <Trigger Property="Visibility" Value="Visible">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard Storyboard="{StaticResource FluidEntranceAnimation}"/>
+                                </Trigger.EnterActions>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -315,13 +319,14 @@
             </Border>
         </Grid>
 
-        <!--  ZONE CENTRALE : APPAREILS DISPONIBLES ET DEMANDES  -->
+        <!-- ZONE CENTRALE : APPAREILS DISPONIBLES ET DEMANDES -->
         <Grid Grid.Row="2" Margin="0,5,0,15">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="6*" />
-                <ColumnDefinition Width="4*" />
+                <ColumnDefinition Width="5.5*" />
+                <ColumnDefinition Width="4.5*" />
             </Grid.ColumnDefinitions>
 
+            <!-- Liste des Appareils Cibles -->
             <Border
                 Grid.Column="0"
                 Margin="0,0,10,0"
@@ -346,7 +351,7 @@
                                 Margin="0,2,0,0"
                                 FontSize="11"
                                 Foreground="#64748B"
-                                Text="Sélectionnez une cible pour démarrer l'envoi direct" />
+                                Text="Sélectionnez une cible pour l'envoi" />
                         </StackPanel>
                         <Button
                             Padding="16,8"
@@ -362,7 +367,7 @@
                                 <DataTemplate>
                                     <Border
                                         Margin="0,4"
-                                        Padding="15,12"
+                                        Padding="12,10"
                                         Background="#1E293B"
                                         BorderBrush="#2563EB"
                                         BorderThickness="0.5"
@@ -372,24 +377,26 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,5,0">
                                                 <TextBlock
-                                                    FontSize="14"
+                                                    FontSize="13"
                                                     FontWeight="Bold"
                                                     Foreground="#F8FAFC"
-                                                    Text="{Binding Name}" />
+                                                    Text="{Binding Name}"
+                                                    TextTrimming="CharacterEllipsis" />
                                                 <TextBlock
                                                     Margin="0,2,0,0"
-                                                    FontSize="10"
+                                                    FontSize="9"
                                                     Foreground="#64748B"
-                                                    Text="{Binding Id}" />
+                                                    Text="{Binding Id}"
+                                                    TextTrimming="CharacterEllipsis" />
                                             </StackPanel>
                                             <Button
                                                 Grid.Column="1"
-                                                Padding="12,6"
+                                                Padding="10,6"
                                                 Command="{Binding DataContext.ConnectAndSendCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 CommandParameter="{Binding}"
-                                                Content="Transmettre →"
+                                                Content="Envoyer →"
                                                 FontSize="11"
                                                 Style="{StaticResource CaptivatingButtonStyle}" />
                                         </Grid>
@@ -401,11 +408,14 @@
                 </Grid>
             </Border>
 
+            <!-- Volet de droite : Demande reçue animée & Historique -->
             <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
+                
+                <!-- Notification Flash de demande entrante (Animation Pulse intégrée) -->
                 <Border
                     Grid.Row="0"
                     Margin="0,0,0,10"
@@ -415,6 +425,20 @@
                     BorderThickness="1"
                     CornerRadius="10"
                     Visibility="{Binding IsTransferRequestVisible, Converter={StaticResource BoolToVis}}">
+                    <Border.RenderTransform>
+                        <TranslateTransform Y="0"/>
+                    </Border.RenderTransform>
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <Trigger Property="Visibility" Value="Visible">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard Storyboard="{StaticResource FluidEntranceAnimation}"/>
+                                    </Trigger.EnterActions>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
                     <StackPanel>
                         <TextBlock
                             FontSize="13"
@@ -455,6 +479,8 @@
                         </Grid>
                     </StackPanel>
                 </Border>
+                
+                <!-- Historique Complet des Transmissions -->
                 <Border
                     Grid.Row="1"
                     Padding="15"
@@ -467,12 +493,23 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <TextBlock
-                            Grid.Row="0"
-                            Margin="0,0,0,10"
-                            FontWeight="Bold"
-                            Foreground="#94A3B8"
-                            Text="Flux récents" />
+                        <Grid Grid.Row="0" Margin="0,0,0,10">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontWeight="Bold"
+                                Foreground="#94A3B8"
+                                Text="Flux récents" />
+                            <Button
+                                Padding="8,3"
+                                HorizontalAlignment="Right"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Command="{Binding ClearTransferHistoryCommand}"
+                                Content="Effacer"
+                                Cursor="Hand"
+                                FontSize="10"
+                                Foreground="#64748B" />
+                        </Grid>
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                             <ItemsControl ItemsSource="{Binding RecentTransfers}">
                                 <ItemsControl.ItemTemplate>
@@ -492,7 +529,8 @@
                                                         FontSize="12"
                                                         FontWeight="SemiBold"
                                                         Foreground="White"
-                                                        Text="{Binding Name}" />
+                                                        Text="{Binding Name}"
+                                                        TextTrimming="CharacterEllipsis" />
                                                     <TextBlock
                                                         Margin="0,2,0,0"
                                                         FontSize="11"
@@ -504,7 +542,7 @@
                                                     VerticalAlignment="Center"
                                                     FontSize="11"
                                                     FontWeight="Bold"
-                                                    Foreground="#22C55E"
+                                                    Foreground="{Binding Status, Converter={StaticResource StatusToColor}}"
                                                     Text="{Binding Status}" />
                                             </Grid>
                                         </Border>
@@ -517,7 +555,7 @@
             </Grid>
         </Grid>
 
-        <!--  COMPOSANT BAS DE PAGE : PROGRESSION CYBER-FLUIDE  -->
+        <!-- COMPOSANT BAS DE PAGE : PROGRESSION CYBER-FLUIDE -->
         <Border
             Grid.Row="3"
             Padding="20,15"
@@ -572,10 +610,11 @@
                     VerticalAlignment="Center"
                     Background="#DC2626"
                     Command="{Binding CancelTransferCommand}"
-                    Content="Annuler le transfert"
+                    Content="Annuler"
                     Cursor="Hand"
                     FontWeight="Bold"
-                    Foreground="White" />
+                    Foreground="White"
+                    Style="{StaticResource CaptivatingButtonStyle}" />
             </Grid>
         </Border>
     </Grid>

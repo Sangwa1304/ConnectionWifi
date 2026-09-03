@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 using Microsoft.Win32;
 using WindowsWifiLibrary.Core.Models;
@@ -37,12 +38,12 @@ public partial class MainViewModel : INotifyPropertyChanged
 
     public string CurrentStateDisplayText => CurrentState switch
     {
-        TransferWorkflowState.DiscoveringPeers => "Recherche des appareils",
+        TransferWorkflowState.DiscoveringPeers => "Recherche des appareils...",
         TransferWorkflowState.PeerSelected => "Appareil sélectionné",
-        TransferWorkflowState.PairingRequested => "Appairage en cours",
-        TransferWorkflowState.TransferNegotiation => "Négociation du transfert",
-        TransferWorkflowState.Sending => "Envoi en cours",
-        TransferWorkflowState.Receiving => "Réception en cours",
+        TransferWorkflowState.PairingRequested => "Appairage en cours...",
+        TransferWorkflowState.TransferNegotiation => "Négociation du transfert...",
+        TransferWorkflowState.Sending => "Envoi en cours...",
+        TransferWorkflowState.Receiving => "Réception en cours...",
         TransferWorkflowState.Completed => "Terminé",
         TransferWorkflowState.Cancelled => "Annulé",
         TransferWorkflowState.Error => "Erreur",
@@ -50,15 +51,14 @@ public partial class MainViewModel : INotifyPropertyChanged
     };
 
     private string _selectedPeerName = "Aucun appareil sélectionné";
-    private string _lanceScan = "lancer la recherche";
     private string _dropStatusText = "Aucun élément sélectionné";
     private string _messageText = string.Empty;
     private string _progressText = "En attente...";
     private string _downloadFolder = GetDefaultDownloadFolder();
     private double _transferProgress;
     private TransferSessionMetadata? _incomingTransferSession;
+    private bool _isFileOverDropZone;
 
-    public string LanceScan { get => _lanceScan; set { _lanceScan = value; OnPropertyChanged(nameof(LanceScan)); } }
     public string SelectedPeerName { get => _selectedPeerName; set { _selectedPeerName = value; OnPropertyChanged(nameof(SelectedPeerName)); } }
     public string DropStatusText { get => _dropStatusText; set { _dropStatusText = value; OnPropertyChanged(nameof(DropStatusText)); } }
     public string MessageText { get => _messageText; set { _messageText = value; OnPropertyChanged(nameof(MessageText)); } }
@@ -76,6 +76,12 @@ public partial class MainViewModel : INotifyPropertyChanged
     }
     public string DownloadFolderDisplay => string.IsNullOrWhiteSpace(DownloadFolder) ? "Dossier par défaut" : DownloadFolder;
     public double TransferProgress { get => _transferProgress; set { _transferProgress = value; OnPropertyChanged(nameof(TransferProgress)); } }
+
+    public bool IsFileOverDropZone
+    {
+        get => _isFileOverDropZone;
+        set { _isFileOverDropZone = value; OnPropertyChanged(nameof(IsFileOverDropZone)); }
+    }
 
     public ObservableCollection<WifiDirectPeer> DiscoveredDevices { get; } = [];
     public ObservableCollection<FileI> PendingFiles { get; } = [];
@@ -120,6 +126,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     private CancellationTokenSource? _ctsConction;
 
     public ICommand BrowseCommand { get; }
+    public ICommand ChangeFolderCommand { get; }
     public ICommand RetryCommand { get; }
     public ICommand ReloadCommand { get; }
     public ICommand ScanCommand { get; }
@@ -139,10 +146,16 @@ public partial class MainViewModel : INotifyPropertyChanged
         _wifiService = new WindowsWifiDirectService();
         _transferService = new FileTransferService();
 
+        // Synchronisation inter-threads sécurisée pour les collections de l'interface graphique
+        BindingOperations.EnableCollectionSynchronization(DiscoveredDevices, new object());
+        BindingOperations.EnableCollectionSynchronization(PendingFiles, new object());
+        BindingOperations.EnableCollectionSynchronization(RecentTransfers, new object());
+
         WireEvents();
         _ = InitializeAsync();
 
         BrowseCommand = new RelayCommand(async _ => await ExecuteBrowseAsync());
+        ChangeFolderCommand = new RelayCommand(_ => ExecuteChangeFolder());
         RetryCommand = new RelayCommand(_ => RetryPage());
         ReloadCommand = new RelayCommand(_ => Reload());
         ScanCommand = new RelayCommand(_ => StartDiscovery());
@@ -181,11 +194,11 @@ public partial class MainViewModel : INotifyPropertyChanged
             if (!initialized || !_wifiService.IsHardwareSupported)
             {
                 _wifiService.Stop();
-                SetState(TransferWorkflowState.Error, "Matériel Wi‑Fi Direct non supporté.");
+                SetState(TransferWorkflowState.Error, "Matériel Wi-Fi Direct non supporté.");
                 return;
             }
             _ = _wifiService.StartPublishingAsync();
-            SetState(TransferWorkflowState.Idle, "Service Wi‑Fi Direct prêt.");
+            SetState(TransferWorkflowState.Idle, "Service Wi-Fi Direct prêt.");
         }
         catch (Exception ex)
         {
@@ -206,7 +219,10 @@ public partial class MainViewModel : INotifyPropertyChanged
     {
         CurrentState = state;
         if (!string.IsNullOrWhiteSpace(statusMessage)) MessageText = statusMessage;
-        ((RelayCommand)CancelTransferCommand).RaiseCanExecuteChanged();
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            ((RelayCommand)CancelTransferCommand).RaiseCanExecuteChanged();
+        });
     }
 
     private async Task ExecuteBrowseAsync()
@@ -214,6 +230,15 @@ public partial class MainViewModel : INotifyPropertyChanged
         OpenFileDialog dialog = new() { CheckFileExists = true, Multiselect = true, Title = "Sélectionner des éléments" };
         if (dialog.ShowDialog() is true) AddFiles(dialog.FileNames);
         await Task.CompletedTask;
+    }
+
+    private void ExecuteChangeFolder()
+    {
+        OpenFolderDialog dialog = new() { Title = "Choisir le dossier de réception", InitialDirectory = DownloadFolder };
+        if (dialog.ShowDialog() is true)
+        {
+            DownloadFolder = dialog.FolderName;
+        }
     }
 
     public void AddFiles(IEnumerable<string>? files)
@@ -240,7 +265,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         if (target == null) return;
         if (PendingFiles.Count == 0)
         {
-            MessageBox.Show("Veuillez d'abord glisser-déposer des éléments.");
+            MessageBox.Show("Veuillez d'abord glisser-déposer des éléments à envoyer.", "Liste vide", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         try
@@ -288,11 +313,12 @@ public partial class MainViewModel : INotifyPropertyChanged
                 
                 if (success)
                 {
-                    AppendTransferHistory(PeerWaiting.Name, "📤 Envoi", "Réussi", "P2P Link", metadata.TotalSize);
+                    AppendTransferHistory(PeerWaiting.Name, "Envoi 🚀", "Réussi", "P2P Link", metadata.TotalSize);
                     ResetWorkflowAfterTimeout("🚀 Tous les fichiers ont été transmis avec succès !");
                 }
                 else
                 {
+                    AppendTransferHistory(PeerWaiting.Name, "Envoi 🚀", "Refusé", "P2P Link", metadata.TotalSize);
                     SetState(TransferWorkflowState.Cancelled, "L'appareil distant a refusé la transaction.");
                     ResetWorkflowAfterTimeout("Transfert interrompu.");
                 }
@@ -312,16 +338,17 @@ public partial class MainViewModel : INotifyPropertyChanged
             var progress = new Progress<FileTransferProgress>(p =>
             {
                 TransferProgress = p.Percentage;
-                ProgressText = $"Téléchargement : {p.CurrentFileName} ({p.Percentage:0.0}%)";
+                ProgressText = $"{p.CurrentFileName} ({p.Percentage:0.0}%)";
                 SetState(TransferWorkflowState.Receiving);
             });
 
             await _transferService.DownloadSessionAsync(session, decision.DestinationFolder!, progress, _ctsTransfert.Token);
-            AppendTransferHistory(session.SenderName ?? "Distant", "Réception", "Terminé", decision.DestinationFolder!, session.TotalSize);
+            AppendTransferHistory(session.SenderName ?? "Distant", "Réception 📥", "Terminé", decision.DestinationFolder!, session.TotalSize);
             ResetWorkflowAfterTimeout("Réception complétée !");
         }
         catch (Exception ex)
         {
+            AppendTransferHistory(session.SenderName ?? "Distant", "Réception 📥", "Échec", DownloadFolder, session.TotalSize);
             SetState(TransferWorkflowState.Error, "Erreur : " + ex.Message);
         }
     }
@@ -330,6 +357,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     {
         if (IncomingTransferSession == null) return;
         _ = _transferService.CancelSessionAsync(IncomingTransferSession.SessionId, CancellationToken.None);
+        AppendTransferHistory(IncomingTransferSession.SenderName ?? "Distant", "Réception 📥", "Refusé", DownloadFolder, IncomingTransferSession.TotalSize);
         SetState(TransferWorkflowState.Cancelled, "Transfert refusé.");
         ClearTransferRequest();
     }
@@ -345,11 +373,12 @@ public partial class MainViewModel : INotifyPropertyChanged
     {
         Task.Run(async () =>
         {
-            await Task.Delay(5000);
+            await Task.Delay(4000);
             Application.Current.Dispatcher.Invoke(() =>
             {
                 PendingFiles.Clear();
                 TransferProgress = 0;
+                ProgressText = "En attente...";
                 IncomingTransferSession = null;
                 SetState(TransferWorkflowState.Idle, endMessage);
             });
@@ -365,7 +394,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     private void RetryPage() { _wifiService.Stop(); _ = InitializeAsync(); }
     private void UpdateDropStatus() => DropStatusText = PendingFiles.Count == 0 ? "Aucun élément" : $"{PendingFiles.Count} prêt(s).";
     
-    private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) => Application.Current.Dispatcher.Invoke(() => MessageText = e.Status.ToString());
+    private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) => Application.Current.Dispatcher.Invoke(() => MessageText = $"Statut matériel : {e.Status}");
     private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) => Application.Current.Dispatcher.Invoke(() => { if (!DiscoveredDevices.Contains(e.Peer)) DiscoveredDevices.Add(e.Peer); });
     
     private void WifiService_PeerUpdated(object? sender, WifiDirectPeerEventArgs e) 
@@ -391,7 +420,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     {
         Application.Current.Dispatcher.Invoke(async () => 
         {
-            var result = MessageBox.Show($"{e.Request.DeviceInformation.Name} veut se connecter.", "Wi-Fi Direct", MessageBoxButton.YesNo);
+            var result = MessageBox.Show($"{e.Request.DeviceInformation.Name} souhaite s'appairer en Wi-Fi Direct. Autoriser ?", "Appairage entrant", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (result == MessageBoxResult.Yes) await _wifiService.AcceptInvitationAsync(e.Token);
             else await _wifiService.RejectInvitationAsync(e.Token);
         });
@@ -413,7 +442,7 @@ public partial class MainViewModel : INotifyPropertyChanged
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
-            RecentTransfers.Insert(0, new TransferHistoryEntry { Name = user, Type = type, Status = status, Path = path, Size = size });
+            RecentTransfers.Insert(0, new TransferHistoryEntry { Name = user, Type = type, Status = status, Path = path, Size = size, Timestamp = DateTime.Now });
         });
     }
 
@@ -423,7 +452,8 @@ public partial class MainViewModel : INotifyPropertyChanged
     {
         if (size < 1024) return $"{size} o";
         if (size < 1024 * 1024) return $"{size / 1024.0:0.##} Ko";
-        return $"{size / (1024.0 * 1024.0):0.##} Mo";
+        if (size < 1024 * 1024 * 1024) return $"{size / (1024.0 * 1024):0.##} Mo";
+        return $"{size / (1024.0 * 1024 * 1024):0.##} Go";
     }
 
     protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
