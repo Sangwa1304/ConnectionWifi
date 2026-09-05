@@ -13,15 +13,16 @@ public interface IWifiDirectService : IDisposable
     event EventHandler<WifiDirectPeerEventArgs>? PeerRemoved;
     event EventHandler<WifiDirectInvitationEventArgs>? InvitationReceived;
     event EventHandler<WifiDirectConnectionEventArgs>? ConnectionEstablished;
-    event EventHandler<WifiDirectConnectionEventArgs>? ConnectionClosed;
+    event EventHandler<WifiDirectPeerEventArgs>? ConnectionClosed;
     event EventHandler<WifiDirectErrorEventArgs>? Error;
 
     Task<bool> InitializeAsync();
     void Stop();
     Task StartPublishingAsync();
     Task StartSubscribingAsync(CancellationToken token);
-    Task StartPublisherSubscribingAsync(CancellationToken token);
     Task ConnectToPeerAsync(WifiDirectPeer peer, CancellationToken token);
+    bool IsConnectToPeer(WifiDirectPeer peer);
     Task AcceptInvitationAsync(string token);
     Task RejectInvitationAsync(string token);
+    
 }

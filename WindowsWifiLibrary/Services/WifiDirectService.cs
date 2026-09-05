@@ -12,21 +12,19 @@ public sealed class WindowsWifiDirectService : IWifiDirectService
     private WiFiDirectAdvertisementPublisher? _publisher;
     private WiFiDirectConnectionListener? _listener;
     private DeviceWatcher? _deviceWatcher;
-
+    
     private readonly List<WiFiDirectDevice> _connectedDevices = [];
-    private readonly ConcurrentDictionary<string, WiFiDirectConnectionRequest>
-_pendingInvitations = new();
+    private readonly ConcurrentDictionary<string, WiFiDirectConnectionRequest> _pendingInvitations = new();
 
     public WifiDirectStatus CurrentStatus { get; private set; } = WifiDirectStatus.Actif;
     public bool IsHardwareSupported { get; private set; }
-    public bool IsReady { get; } = false;
     public event EventHandler<WifiDirectStatusEventArgs>? StatusChanged;
     public event EventHandler<WifiDirectPeerEventArgs>? PeerDiscovered;
     public event EventHandler<WifiDirectPeerEventArgs>? PeerUpdated;
     public event EventHandler<WifiDirectPeerEventArgs>? PeerRemoved;
     public event EventHandler<WifiDirectInvitationEventArgs>? InvitationReceived;
     public event EventHandler<WifiDirectConnectionEventArgs>? ConnectionEstablished;
-    public event EventHandler<WifiDirectConnectionEventArgs>? ConnectionClosed;
+    public event EventHandler<WifiDirectPeerEventArgs>? ConnectionClosed;
     public event EventHandler<WifiDirectErrorEventArgs>? Error;
 
     public async Task<bool> InitializeAsync()
@@ -49,14 +47,15 @@ _pendingInvitations = new();
 
     public Task StartPublishingAsync()
     {
+        
         return Task.Run(() =>
         {
             StopPublisher();
-
+            
             _publisher = new WiFiDirectAdvertisementPublisher();
             _publisher.Advertisement.ListenStateDiscoverability = WiFiDirectAdvertisementListenStateDiscoverability.Normal;
-            _publisher.Advertisement.IsAutonomousGroupOwnerEnabled = true;
-
+            //_publisher.Advertisement.IsAutonomousGroupOwnerEnabled = true;
+            
             _listener = new WiFiDirectConnectionListener();
             _listener.ConnectionRequested += OnConnectionRequested;
 
@@ -67,6 +66,10 @@ _pendingInvitations = new();
 
     public Task StartSubscribingAsync(CancellationToken token)
     {
+        if(_deviceWatcher != null)
+        {
+            if(_deviceWatcher?.Status == DeviceWatcherStatus.Started || _deviceWatcher?.Status == DeviceWatcherStatus.Created) return Task.CompletedTask;
+        }
         StopWatcher();
 
         string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint);
@@ -103,7 +106,13 @@ _pendingInvitations = new();
         catch (Exception ex)
         {
             ReportError($"Erreur de connexion : {ex.Message}");
+            throw;
         }
+    }
+
+    public bool IsConnectToPeer(WifiDirectPeer peer)
+    {
+        return  (from d in _connectedDevices where d.DeviceId == peer.Id select true) != null;
     }
 
     private void OnConnectionRequested(WiFiDirectConnectionListener sender, WiFiDirectConnectionRequestedEventArgs args)
@@ -192,7 +201,7 @@ _pendingInvitations = new();
             _connectedDevices.Remove(sender);
             sender.Dispose();
 
-            ConnectionClosed?.Invoke(this, new WifiDirectConnectionEventArgs());
+            ConnectionClosed?.Invoke(this, new WifiDirectPeerEventArgs {Peer = new () {Id = sender.DeviceId}});
             UpdateStatus(WifiDirectStatus.Actif);
         }
     }
@@ -280,10 +289,5 @@ _pendingInvitations = new();
     public void Dispose()
     {
         Stop();
-    }
-
-    public Task StartPublisherSubscribingAsync(CancellationToken token)
-    {
-        throw new NotImplementedException();
     }
 }

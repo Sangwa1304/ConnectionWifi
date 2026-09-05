@@ -8,7 +8,6 @@ public interface IFileTransferService
 
     Task StartListeningAsync(string localIp, int port, CancellationToken cancellationToken);
     Task StopListeningAsync();
-
     Task<TransferValidationResult> ValidateTransferAsync(IEnumerable<string> paths, CancellationToken cancellationToken);
     Task<TransferSessionMetadata> PrepareMetadataAsync(IEnumerable<string> paths, string localIp, int port);
     Task<TransferDecision> AcceptTransferAsync(TransferSessionMetadata session, string? destinationFolder, CancellationToken cancellationToken);

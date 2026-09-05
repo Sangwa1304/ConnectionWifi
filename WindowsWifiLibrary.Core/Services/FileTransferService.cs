@@ -31,7 +31,7 @@ public class FileTransferService : IFileTransferService, IDisposable
         {
             while (!_listenerCts.Token.IsCancellationRequested)
             {
-                var context = await _listener.GetContextAsync().ConfigureAwait(false);
+                HttpListenerContext? context = await _listener.GetContextAsync().ConfigureAwait(false);
                 _ = Task.Run(() => HandleIncomingRequestAsync(context), _listenerCts.Token);
             }
         }
@@ -46,16 +46,16 @@ public class FileTransferService : IFileTransferService, IDisposable
         var result = new TransferValidationResult();
         var normalizedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var rawPath in paths.Where(p => !string.IsNullOrWhiteSpace(p)))
+        foreach (string? rawPath in paths.Where(p => !string.IsNullOrWhiteSpace(p)))
         {
-            var trimmedPath = rawPath.Trim();
+            string? trimmedPath = rawPath.Trim();
             if (!File.Exists(trimmedPath) && !Directory.Exists(trimmedPath))
             {
                 result.Errors.Add($"Le chemin '{trimmedPath}' est introuvable ou invalide.");
                 continue;
             }
 
-            var canonicalPath = Path.GetFullPath(trimmedPath);
+            string? canonicalPath = Path.GetFullPath(trimmedPath);
             if (!normalizedPaths.Add(canonicalPath))
             {
                 result.Warnings.Add($"Le chemin '{canonicalPath}' est dupliqué dans le transfert.");
@@ -180,6 +180,24 @@ public class FileTransferService : IFileTransferService, IDisposable
                 else
                 {
                     response.StatusCode = (int)HttpStatusCode.BadRequest;
+                }
+            }
+            // CORRECTION: Ajout du endpoint manquant appelé par GetSessionAsync
+            else if (request.HttpMethod == "GET" && cleanPath.StartsWith("/api/transfer/session/"))
+            {
+                string sessionId = cleanPath.Substring("/api/transfer/session/".Length);
+                if (!string.IsNullOrEmpty(sessionId) && _activeSessions.TryGetValue(sessionId, out var session))
+                {
+                    response.StatusCode = (int)HttpStatusCode.OK;
+                    response.ContentType = "application/json";
+                    var json = JsonSerializer.Serialize(session);
+                    var buffer = System.Text.Encoding.UTF8.GetBytes(json);
+                    response.ContentLength64 = buffer.Length;
+                    await response.OutputStream.WriteAsync(buffer).ConfigureAwait(false);
+                }
+                else
+                {
+                    response.StatusCode = (int)HttpStatusCode.NotFound;
                 }
             }
             else if (request.HttpMethod == "GET" && cleanPath == "/api/transfer/download")
@@ -349,6 +367,13 @@ public class FileTransferService : IFileTransferService, IDisposable
                     return false;
                 }
             }
+        }
+        // CORRECTION: Interception propre du SocketException (Connexion refusée)
+        catch (HttpRequestException ex)
+        {
+            metadata.SessionState = TransferSessionState.Failed;
+            metadata.ErrorMessage = $"L'hôte distant ({targetDevice.IpAddress}:{targetDevice.Port}) a refusé la connexion. Vérifiez le pare-feu. Détail : {ex.Message}";
+            return false;
         }
         catch (Exception ex)
         {

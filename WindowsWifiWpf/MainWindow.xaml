@@ -4,11 +4,11 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="clr-namespace:WindowsWifiWpf"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:viewmodels="clr-namespace:WindowsWifiWpf.ViewModels" d:DataContext="{d:DesignInstance Type=viewmodels:MainViewModel}"
     Title="Windows Wi-Fi P2P - NextGen"
-    Width="620"
+    Width="640"
     Height="720"
-    MinWidth="500"
+    MinWidth="620"
     MinHeight="600"
     MaxWidth="660"
     MaxHeight="760"
@@ -129,6 +129,11 @@
             BorderThickness="1"
             CornerRadius="10">
             <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
                 <StackPanel
                     HorizontalAlignment="Left"
                     VerticalAlignment="Center"
@@ -157,8 +162,10 @@
                         FontSize="11"
                         FontWeight="Black"
                         Foreground="#64748B"
-                        Text="RÉSEAU P2P ACTIVÉ |" />
+                        VerticalAlignment="Center"
+                        Text="Etat |" />
                     <TextBlock
+                        VerticalAlignment="Center"
                         Margin="10,0,0,0"
                         FontSize="14"
                         FontWeight="Bold"
@@ -167,34 +174,35 @@
                 </StackPanel>
 
                 <StackPanel
-                    HorizontalAlignment="Right"
+                    Grid.Column="1"
+                    Margin="10,0,2,0"
+                    HorizontalAlignment="Left"
                     VerticalAlignment="Center"
                     Orientation="Horizontal">
                     <TextBlock
                         VerticalAlignment="Center"
                         FontSize="12"
                         Foreground="#64748B"
-                        Text="Dossier : " />
+                        Text=" | Dossier : " />
                     <TextBlock
-                        Margin="5,0"
-                        MaxWidth="150"
-                        VerticalAlignment="Center"
                         FontSize="12"
+                        MaxWidth="200"
                         FontWeight="SemiBold"
                         Foreground="#E2E8F0"
                         Text="{Binding DownloadFolderDisplay}"
                         TextTrimming="CharacterEllipsis"
                         ToolTip="{Binding DownloadFolder}" />
-                    <Button
-                        Margin="10,0,0,0"
-                        Padding="10,4"
-                        Background="#1E293B"
-                        Command="{Binding ChangeFolderCommand}"
-                        Content="Changer"
-                        Cursor="Hand"
-                        FontSize="11"
-                        Style="{StaticResource CaptivatingButtonStyle}" />
                 </StackPanel>
+                <Button
+                    Grid.Column="2"
+                    Margin="2,0,0,0"
+                    Padding="10,4"
+                    Background="#1E293B"
+                    Command="{Binding ChangeFolderCommand}"
+                    Content="Changer"
+                    Cursor="Hand"
+                    FontSize="11"
+                    Style="{StaticResource CaptivatingButtonStyle}" />
             </Grid>
         </Border>
 
@@ -268,7 +276,8 @@
                             Cursor="Hand"
                             FontSize="11"
                             FontWeight="Bold"
-                            Foreground="White" />
+                            Foreground="White" 
+                            Style="{StaticResource CaptivatingButtonStyle}"/>
                     </Grid>
                     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding PendingFiles}">
@@ -341,7 +350,11 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <Grid Grid.Row="0" Margin="0,0,0,12">
-                        <StackPanel Orientation="Vertical">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Vertical" Grid.Column="0">
                             <TextBlock
                                 FontSize="16"
                                 FontWeight="Black"
@@ -354,7 +367,9 @@
                                 Text="Sélectionnez une cible pour l'envoi" />
                         </StackPanel>
                         <Button
+                            Grid.Column="1"
                             Padding="16,8"
+                            Margin="2,0,0,0"
                             HorizontalAlignment="Right"
                             Command="{Binding ScanCommand}"
                             Content="Rechercher"

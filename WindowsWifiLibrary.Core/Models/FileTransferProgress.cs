@@ -7,4 +7,3 @@ public class FileTransferProgress
     public double Percentage => TotalBytes == 0 ? 0 : (double)BytesTransferred / TotalBytes * 100;
     public string CurrentFileName { get; set; } = string.Empty;
 }
-

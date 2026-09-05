@@ -151,9 +151,6 @@ public partial class MainViewModel : INotifyPropertyChanged
         BindingOperations.EnableCollectionSynchronization(PendingFiles, new object());
         BindingOperations.EnableCollectionSynchronization(RecentTransfers, new object());
 
-        WireEvents();
-        _ = InitializeAsync();
-
         BrowseCommand = new RelayCommand(async _ => await ExecuteBrowseAsync());
         ChangeFolderCommand = new RelayCommand(_ => ExecuteChangeFolder());
         RetryCommand = new RelayCommand(_ => RetryPage());
@@ -170,6 +167,9 @@ public partial class MainViewModel : INotifyPropertyChanged
 
         PendingFiles.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasPendingFiles)); OnPropertyChanged(nameof(NoPendingFiles)); UpdateDropStatus(); };
         RecentTransfers.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasRecentTransfers)); ((RelayCommand)ClearTransferHistoryCommand).RaiseCanExecuteChanged(); };
+
+        WireEvents();
+        _ = InitializeAsync();
 
         SetState(TransferWorkflowState.Idle, "Prêt à démarrer un transfert.");
     }
@@ -214,7 +214,11 @@ public partial class MainViewModel : INotifyPropertyChanged
         _ctsWatcher = new CancellationTokenSource();
         _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
     }
-
+    private void SetStateDevice( WifiDirectPeer? state, string? statusMessage = null)
+    {
+        
+    }
+    
     private void SetState(TransferWorkflowState state, string? statusMessage = null)
     {
         CurrentState = state;
@@ -281,7 +285,36 @@ public partial class MainViewModel : INotifyPropertyChanged
             SetState(TransferWorkflowState.Error, "Erreur de liaison : " + ex.Message);
         }
     }
-
+    private async Task ConnectAsync(WifiDirectPeer? target)
+    {
+        if (target == null) return;
+        try
+        {   
+            _ctsConction?.Cancel();
+            SelectedPeerName = target.Name;
+            PeerWaiting = target;
+            SetState(TransferWorkflowState.PairingRequested, $"tentative de connexion à {target.Name}...");
+            _ctsConction = new CancellationTokenSource();
+            await _wifiService.ConnectToPeerAsync(target, _ctsConction.Token);
+        }
+        catch (Exception ex)
+        {
+            SetState(TransferWorkflowState.Error, "Erreur de liaison : " + ex.Message);
+        }
+    }
+    private async Task SendAsync(WifiDirectPeer? target)
+    {
+        if (target == null) return;
+        if (PendingFiles.Count == 0)
+        {
+            MessageBox.Show("Veuillez d'abord glisser-déposer des éléments à envoyer.", "Liste vide", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        else if(_wifiService.IsConnectToPeer(target))
+        {
+            //start send to target
+        }
+    }
     private void WifiService_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e)
     {
         Application.Current.Dispatcher.InvokeAsync(async () =>
@@ -374,6 +407,7 @@ public partial class MainViewModel : INotifyPropertyChanged
         Task.Run(async () =>
         {
             await Task.Delay(4000);
+            
             Application.Current.Dispatcher.Invoke(() =>
             {
                 PendingFiles.Clear();
@@ -387,14 +421,13 @@ public partial class MainViewModel : INotifyPropertyChanged
 
     private void ClearTransferRequest() => IncomingTransferSession = null;
     private void DeleteAll() { PendingFiles.Clear(); SetState(TransferWorkflowState.Idle, "Liste vidée."); }
-    private void DeleteItem(FileI? file) { if (file != null) PendingFiles.Remove(file); }
+    private void DeleteItem(FileI? file) { if (file != null) PendingFiles.Remove(file); if (PendingFiles.Count > 0) SetState(TransferWorkflowState.PeerSelected, $"{PendingFiles.Count} élément(s) prêt(s). Sélectionnez un appareil.");}
     private void OpenDownloadFolder() => Process.Start(new ProcessStartInfo { FileName = DownloadFolder, UseShellExecute = true });
     private void ClearTransferHistory() => RecentTransfers.Clear();
     private void Reload() => StartDiscovery();
     private void RetryPage() { _wifiService.Stop(); _ = InitializeAsync(); }
     private void UpdateDropStatus() => DropStatusText = PendingFiles.Count == 0 ? "Aucun élément" : $"{PendingFiles.Count} prêt(s).";
-    
-    private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) => Application.Current.Dispatcher.Invoke(() => MessageText = $"Statut matériel : {e.Status}");
+    private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) => Application.Current.Dispatcher.Invoke(() => { /*MessageText = $"Statut matériel : {e.Status}"*/; });
     private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) => Application.Current.Dispatcher.Invoke(() => { if (!DiscoveredDevices.Contains(e.Peer)) DiscoveredDevices.Add(e.Peer); });
     
     private void WifiService_PeerUpdated(object? sender, WifiDirectPeerEventArgs e) 
@@ -426,9 +459,9 @@ public partial class MainViewModel : INotifyPropertyChanged
         });
     }
 
-    private void WifiService_ConnectionClosed(object? sender, WifiDirectConnectionEventArgs e) { }
+    private void WifiService_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e){SetStateDevice(e.Peer);}
     
-    private void OnIncomingTransferRequested(object? sender, TransferSessionMetadata m) 
+    private void OnIncomingTransferRequested(object? sender, TransferSessionMetadata m)
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
