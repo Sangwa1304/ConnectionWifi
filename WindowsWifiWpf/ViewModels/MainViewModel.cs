@@ -1,28 +1,19 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
-using System.Windows.Input;
+using LibraryMI.Interfaces;
+using LibraryMI.Models;
 using Microsoft.Win32;
-using WindowsWifiLibrary.Core.Models;
-using WindowsWifiLibrary.Core.Services;
 using WindowsWifiLibrary.Models;
 using WindowsWifiLibrary.Services;
-using WindowsWifiWpf.Models;
 
 namespace WindowsWifiWpf.ViewModels;
-
 public partial class MainViewModel : INotifyPropertyChanged
 {
     private readonly WindowsWifiDirectService _wifiService;
-    private readonly FileTransferService _transferService;
+    private readonly IFileTransferService _transferService;
 
     private TransferWorkflowState _currentState = TransferWorkflowState.Idle;
     public TransferWorkflowState CurrentState
@@ -140,11 +131,10 @@ public partial class MainViewModel : INotifyPropertyChanged
     public ICommand ClearTransferHistoryCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-
     public MainViewModel()
     {
         _wifiService = new WindowsWifiDirectService();
-        _transferService = new FileTransferService();
+        _transferService = Init.GetService();
 
         // Synchronisation inter-threads sécurisée pour les collections de l'interface graphique
         BindingOperations.EnableCollectionSynchronization(DiscoveredDevices, new object());

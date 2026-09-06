@@ -1,5 +1,5 @@
+using LibraryMI.Models;
 using System.Net.Http.Json;
-using WindowsWifiLibrary.Core.Models;
 
 namespace WindowsWifiLibrary.Core.Services;
 

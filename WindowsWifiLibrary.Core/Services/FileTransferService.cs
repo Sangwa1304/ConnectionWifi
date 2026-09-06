@@ -1,12 +1,13 @@
+using LibraryMI.Interfaces;
+using LibraryMI.Models;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using WindowsWifiLibrary.Core.Interfaces;
 using WindowsWifiLibrary.Core.Models;
 
 namespace WindowsWifiLibrary.Core.Services;
 
-public class FileTransferService : IFileTransferService, IDisposable
+public class FileTransferService : IFileTransferService
 {
     public event EventHandler<TransferSessionMetadata>? IncomingTransferRequested;
 
