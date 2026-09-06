@@ -33,8 +33,10 @@ public sealed class TransferReceiverService
     public async Task DownloadSessionAsync(string senderBaseUrl, TransferSessionMetadata session, string destinationFolder, IProgress<FileTransferProgress> progress, CancellationToken cancellationToken)
     {
         if (session is null) throw new ArgumentNullException(nameof(session));
+        if (string.IsNullOrWhiteSpace(destinationFolder)) throw new ArgumentException("Le dossier de destination est requis.", nameof(destinationFolder));
 
         Interlocked.Exchange(ref _totalTransferred, 0);
+        Directory.CreateDirectory(Path.GetFullPath(destinationFolder));
         await DownloadItemsAsync(senderBaseUrl, session, destinationFolder, session.Items, progress, cancellationToken).ConfigureAwait(false);
     }
 
@@ -54,7 +56,14 @@ public sealed class TransferReceiverService
             }
 
             var relativePath = item.RelativePath.Replace('\\', '/');
+            if (!IsSafeRelativePath(relativePath))
+                throw new InvalidDataException($"Chemin distant invalide : {relativePath}");
             var targetPath = Path.Combine(destinationFolder, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            var root = Path.GetFullPath(destinationFolder)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            if (!Path.GetFullPath(targetPath).StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Le fichier distant sort du dossier de destination.");
             
             var directory = Path.GetDirectoryName(targetPath);
             if (!string.IsNullOrEmpty(directory))
@@ -68,10 +77,15 @@ public sealed class TransferReceiverService
 
     private async Task DownloadFileAsync(string senderBaseUrl, TransferSessionMetadata session, string relativePath, string destinationPath, long expectedLength, IProgress<FileTransferProgress> progress, CancellationToken cancellationToken)
     {
-        using var response = await _httpClient.GetAsync(BuildDownloadUrl(senderBaseUrl, session.SessionId, relativePath), HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildDownloadUrl(senderBaseUrl, session.SessionId, relativePath));
+        request.Headers.Add("X-Transfer-Token", session.SessionToken);
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        await using var destinationStream = File.Create(destinationPath);
+        var temporaryPath = destinationPath + $".{Guid.NewGuid():N}.part";
+        try
+        {
+            await using var destinationStream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
         await using var sourceStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
         var buffer = new byte[81920];
@@ -102,6 +116,15 @@ public sealed class TransferReceiverService
         {
             throw new InvalidOperationException($"Le fichier '{destinationPath}' n'a pas été entièrement téléchargé.");
         }
+            await destinationStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await destinationStream.DisposeAsync().ConfigureAwait(false);
+            File.Move(temporaryPath, destinationPath, true);
+        }
+        catch
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            throw;
+        }
     }
 
     private static string BuildUrl(string baseUrl, string relativePath) => baseUrl.TrimEnd('/') + relativePath;
@@ -110,4 +133,9 @@ public sealed class TransferReceiverService
     {
         return $"{baseUrl.TrimEnd('/')}/api/transfer/download?sessionId={Uri.EscapeDataString(sessionId)}&path={Uri.EscapeDataString(relativePath)}";
     }
+
+    private static bool IsSafeRelativePath(string relativePath) =>
+        !Path.IsPathRooted(relativePath)
+        && relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .All(segment => segment is not "." and not "..");
 }

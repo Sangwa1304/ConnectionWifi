@@ -2,6 +2,8 @@ using LibraryMI.Interfaces;
 using LibraryMI.Models;
 using System.Net;
 using System.Net.Http.Json;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text.Json;
 using WindowsWifiLibrary.Core.Models;
 
@@ -9,6 +11,10 @@ namespace WindowsWifiLibrary.Core.Services;
 
 public class FileTransferService : IFileTransferService
 {
+    private const int MaxRequestBodyBytes = 64 * 1024;
+    private const int MaxFilesPerSession = 10_000;
+    private const int MaxDirectoryDepth = 32;
+    private static readonly TimeSpan SessionLifetime = TimeSpan.FromMinutes(10);
     public event EventHandler<TransferSessionMetadata>? IncomingTransferRequested;
 
     private HttpListener? _listener;
@@ -16,9 +22,9 @@ public class FileTransferService : IFileTransferService
     private Task? _listenerLoopTask;
     private readonly HttpClient _httpClient = new();
 
-    private readonly Dictionary<string, TaskCompletionSource<TransferDecision>> _pairingRequests = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _servedFiles = []; 
-    private readonly Dictionary<string, TransferSessionMetadata> _activeSessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<TransferDecision>> _pairingRequests = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string> _servedFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, TransferSessionMetadata> _activeSessions = new(StringComparer.OrdinalIgnoreCase);
 
     public Task StartListeningAsync(string localIp, int port, CancellationToken cancellationToken)
     {
@@ -92,12 +98,21 @@ public class FileTransferService : IFileTransferService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (!IsValidSession(session))
+        {
+            throw new InvalidOperationException("La session de transfert est invalide ou expirée.");
+        }
+
+        var destination = string.IsNullOrWhiteSpace(destinationFolder)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P")
+            : Path.GetFullPath(destinationFolder);
+        Directory.CreateDirectory(destination);
+
         var decision = new TransferDecision
         {
             Accepted = true,
-            DestinationFolder = string.IsNullOrWhiteSpace(destinationFolder)
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P")
-                : destinationFolder,
+            DestinationFolder = destination,
+            SessionToken = session.SessionToken,
             Reason = "Transfer accepted"
         };
 
@@ -130,7 +145,7 @@ public class FileTransferService : IFileTransferService
             session.SessionState = TransferSessionState.Cancelled;
             session.NegotiationStatus = TransferNegotiationStatus.Cancelled;
             session.ErrorMessage ??= "Le transfert a été annulé.";
-            _activeSessions.Remove(sessionId);
+            _activeSessions.TryRemove(sessionId, out _);
         }
 
         _servedFiles.Clear();
@@ -159,10 +174,9 @@ public class FileTransferService : IFileTransferService
 
             if (request.HttpMethod == "POST" && cleanPath == "/api/transfer/request")
             {
-                using var reader = new StreamReader(request.InputStream);
-                var payload = await reader.ReadToEndAsync().ConfigureAwait(false);
+                var payload = await ReadRequestBodyAsync(request).ConfigureAwait(false);
                 var metadata = JsonSerializer.Deserialize<TransferSessionMetadata>(payload);
-                if (metadata != null)
+                if (metadata != null && IsValidSession(metadata))
                 {
                     _activeSessions[metadata.SessionId] = metadata;
                     metadata.SessionState = TransferSessionState.Negotiating;
@@ -177,17 +191,20 @@ public class FileTransferService : IFileTransferService
             }
             else if (request.HttpMethod == "POST" && cleanPath == "/api/transfer/accept")
             {
-                using var reader = new StreamReader(request.InputStream);
-                var payload = await reader.ReadToEndAsync().ConfigureAwait(false);
+                var payload = await ReadRequestBodyAsync(request).ConfigureAwait(false);
                 var decision = JsonSerializer.Deserialize<TransferDecision>(payload);
                 string sessionId = request.QueryString["sessionId"] ?? string.Empty;
 
-                if (decision != null && !string.IsNullOrWhiteSpace(sessionId))
+                if (decision != null && !string.IsNullOrWhiteSpace(sessionId)
+                    && _activeSessions.TryGetValue(sessionId, out var activeSession)
+                    && CryptographicOperations.FixedTimeEquals(
+                        Convert.FromBase64String(activeSession.SessionToken),
+                        Convert.FromBase64String(decision.SessionToken ?? string.Empty)))
                 {
                     if (_pairingRequests.TryGetValue(sessionId, out var tcs))
                     {
                         tcs.TrySetResult(decision);
-                        _pairingRequests.Remove(sessionId);
+                        _pairingRequests.TryRemove(sessionId, out _);
                     }
                     response.StatusCode = (int)HttpStatusCode.OK;
                 }
@@ -199,8 +216,9 @@ public class FileTransferService : IFileTransferService
             // CORRECTION: Ajout du endpoint manquant appelé par GetSessionAsync
             else if (request.HttpMethod == "GET" && cleanPath.StartsWith("/api/transfer/session/"))
             {
-                string sessionId = cleanPath.Substring("/api/transfer/session/".Length);
-                if (!string.IsNullOrEmpty(sessionId) && _activeSessions.TryGetValue(sessionId, out var session))
+                string sessionId = Uri.UnescapeDataString(cleanPath.Substring("/api/transfer/session/".Length));
+                if (!string.IsNullOrEmpty(sessionId) && _activeSessions.TryGetValue(sessionId, out var session)
+                    && HasValidToken(request, session.SessionToken))
                 {
                     response.StatusCode = (int)HttpStatusCode.OK;
                     response.ContentType = "application/json";
@@ -216,8 +234,13 @@ public class FileTransferService : IFileTransferService
             }
             else if (request.HttpMethod == "GET" && cleanPath == "/api/transfer/download")
             {
+                string sessionId = request.QueryString["sessionId"] ?? string.Empty;
                 string relativePath = request.QueryString["path"] ?? string.Empty;
-                if (_servedFiles.TryGetValue(relativePath, out string? fullLocalPath) && File.Exists(fullLocalPath))
+                if (_activeSessions.TryGetValue(sessionId, out var session)
+                    && HasValidToken(request, session.SessionToken)
+                    && IsSafeRelativePath(relativePath)
+                    && _servedFiles.TryGetValue(GetServedFileKey(sessionId, relativePath), out string? fullLocalPath)
+                    && File.Exists(fullLocalPath))
                 {
                     await ServeFileChunkAsync(request, response, fullLocalPath).ConfigureAwait(false);
                     return; 
@@ -231,6 +254,14 @@ public class FileTransferService : IFileTransferService
             {
                 response.StatusCode = (int)HttpStatusCode.NotFound;
             }
+        }
+        catch (JsonException)
+        {
+            response.StatusCode = (int)HttpStatusCode.BadRequest;
+        }
+        catch (InvalidDataException)
+        {
+            response.StatusCode = (int)HttpStatusCode.RequestEntityTooLarge;
         }
         catch
         {
@@ -250,9 +281,21 @@ public class FileTransferService : IFileTransferService
 
         if (!string.IsNullOrEmpty(rangeHeader))
         {
-            var parts = rangeHeader.Replace("bytes=", "").Split('-');
-            if (long.TryParse(parts[0], out var pStart)) startByte = pStart;
-            if (parts.Length > 1 && long.TryParse(parts[1], out var pEnd)) endByte = pEnd;
+            var parts = rangeHeader.Replace("bytes=", "", StringComparison.OrdinalIgnoreCase).Split('-');
+            long pEnd = fileInfo.Length - 1;
+            if (parts.Length != 2 || !long.TryParse(parts[0], out var pStart) || pStart < 0
+                || (parts[1].Length > 0 && (!long.TryParse(parts[1], out pEnd) || pEnd < pStart)))
+            {
+                response.StatusCode = (int)HttpStatusCode.RequestedRangeNotSatisfiable;
+                return;
+            }
+            startByte = pStart;
+            if (parts[1].Length > 0) endByte = Math.Min(pEnd, fileInfo.Length - 1);
+            if (startByte >= fileInfo.Length)
+            {
+                response.StatusCode = (int)HttpStatusCode.RequestedRangeNotSatisfiable;
+                return;
+            }
             response.StatusCode = (int)HttpStatusCode.PartialContent;
             response.AddHeader("Content-Range", $"bytes {startByte}-{endByte}/{fileInfo.Length}");
         }
@@ -283,7 +326,13 @@ public class FileTransferService : IFileTransferService
 
     public async Task<TransferSessionMetadata> PrepareMetadataAsync(IEnumerable<string> paths, string localIp, int port)
     {
-        var session = new TransferSessionMetadata { SenderIp = localIp, SenderPort = port, SessionState = TransferSessionState.Created };
+        var session = new TransferSessionMetadata
+        {
+            SenderIp = localIp,
+            SenderPort = port,
+            SessionToken = CreateSessionToken(),
+            SessionState = TransferSessionState.Created
+        };
         _servedFiles.Clear();
 
         var validation = await ValidateTransferAsync(paths, CancellationToken.None).ConfigureAwait(false);
@@ -311,12 +360,12 @@ public class FileTransferService : IFileTransferService
                 session.Items.Add(item);
                 session.TotalSize += fileInfo.Length;
                 session.TotalFiles++;
-                _servedFiles[item.RelativePath] = fileInfo.FullName;
+                _servedFiles[GetServedFileKey(session.SessionId, item.RelativePath)] = fileInfo.FullName;
             }
             else if (Directory.Exists(normalizedPath))
             {
                 var directoryInfo = new DirectoryInfo(normalizedPath);
-                session.Items.Add(BuildDirectoryMetadata(directoryInfo, directoryInfo.Name, session));
+                session.Items.Add(BuildDirectoryMetadata(directoryInfo, directoryInfo.Name, session, 0));
             }
         }
 
@@ -324,8 +373,9 @@ public class FileTransferService : IFileTransferService
         return session;
     }
 
-    private TransferItemMetadata BuildDirectoryMetadata(DirectoryInfo dir, string relativeBase, TransferSessionMetadata session)
+    private TransferItemMetadata BuildDirectoryMetadata(DirectoryInfo dir, string relativeBase, TransferSessionMetadata session, int depth)
     {
+        if (depth > MaxDirectoryDepth) throw new InvalidOperationException("Le dossier est trop profond.");
         var dirMeta = new TransferItemMetadata { RelativePath = relativeBase, FullLocalPath = dir.FullName, IsDirectory = true };
 
         foreach (var file in dir.GetFiles())
@@ -335,12 +385,13 @@ public class FileTransferService : IFileTransferService
             dirMeta.Children.Add(item);
             session.TotalSize += file.Length;
             session.TotalFiles++;
-            _servedFiles[relPath] = file.FullName;
+            if (session.TotalFiles >= MaxFilesPerSession) throw new InvalidOperationException("Le transfert contient trop de fichiers.");
+            _servedFiles[GetServedFileKey(session.SessionId, relPath)] = file.FullName;
         }
 
         foreach (var subDir in dir.GetDirectories())
         {
-            dirMeta.Children.Add(BuildDirectoryMetadata(subDir, $"{relativeBase}/{subDir.Name}", session));
+            dirMeta.Children.Add(BuildDirectoryMetadata(subDir, $"{relativeBase}/{subDir.Name}", session, depth + 1));
         }
 
         return dirMeta;
@@ -358,7 +409,7 @@ public class FileTransferService : IFileTransferService
             
             if (!response.IsSuccessStatusCode)
             {
-                _pairingRequests.Remove(metadata.SessionId);
+                _pairingRequests.TryRemove(metadata.SessionId, out _);
                 metadata.SessionState = TransferSessionState.Failed;
                 return false;
             }
@@ -368,6 +419,14 @@ public class FileTransferService : IFileTransferService
                 TransferDecision decision = await tcs.Task.ConfigureAwait(false);
                 if (decision.Accepted)
                 {
+                    if (!CryptographicOperations.FixedTimeEquals(
+                        Convert.FromBase64String(metadata.SessionToken),
+                        Convert.FromBase64String(decision.SessionToken ?? string.Empty)))
+                    {
+                        metadata.SessionState = TransferSessionState.Failed;
+                        metadata.ErrorMessage = "Jeton de session invalide.";
+                        return false;
+                    }
                     metadata.SessionState = TransferSessionState.ReadyToSend;
                     metadata.NegotiationStatus = TransferNegotiationStatus.Accepted;
                     metadata.TargetFolder = decision.DestinationFolder;
@@ -397,7 +456,7 @@ public class FileTransferService : IFileTransferService
         }
         finally
         {
-            _pairingRequests.Remove(metadata.SessionId);
+            _pairingRequests.TryRemove(metadata.SessionId, out _);
         }
     }
 
@@ -416,7 +475,18 @@ public class FileTransferService : IFileTransferService
         async Task ProcessItemAsync(TransferItemMetadata item)
         {
             string sanitizedRelativePath = item.RelativePath.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
+            if (!IsSafeRelativePath(item.RelativePath))
+            {
+                throw new InvalidDataException($"Chemin distant invalide : {item.RelativePath}");
+            }
             string targetPath = Path.Combine(destinationFolder, sanitizedRelativePath);
+            var root = Path.GetFullPath(destinationFolder)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            if (!Path.GetFullPath(targetPath).StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("Le fichier distant sort du dossier de destination.");
+            }
 
             if (item.IsDirectory)
             {
@@ -446,7 +516,13 @@ public class FileTransferService : IFileTransferService
                 });
             });
 
-            await DownloadFileAsync($"{baseUrl}?path={Uri.EscapeDataString(item.RelativePath)}", targetPath, item.Size, cancellationToken, fileProgress).ConfigureAwait(false);
+            await DownloadFileAsync(
+                $"{baseUrl}?sessionId={Uri.EscapeDataString(session.SessionId)}&path={Uri.EscapeDataString(item.RelativePath)}",
+                session.SessionToken,
+                targetPath,
+                item.Size,
+                cancellationToken,
+                fileProgress).ConfigureAwait(false);
         }
 
         foreach (var item in session.Items)
@@ -456,13 +532,18 @@ public class FileTransferService : IFileTransferService
         }
     }
 
-    private async Task DownloadFileAsync(string url, string destinationPath, long fileSize, CancellationToken token, IProgress<long> onProgress)
+    private async Task DownloadFileAsync(string url, string sessionToken, string destinationPath, long fileSize, CancellationToken token, IProgress<long> onProgress)
     {
-        using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("X-Transfer-Token", sessionToken);
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        await using var destinationStream = File.Create(destinationPath);
-        await using var sourceStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+        var temporaryPath = destinationPath + $".{Guid.NewGuid():N}.part";
+        try
+        {
+            await using var destinationStream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
+            await using var sourceStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
 
         var buffer = new byte[81920];
         int bytesRead;
@@ -476,9 +557,16 @@ public class FileTransferService : IFileTransferService
             onProgress.Report(bytesRead);
         }
 
-        if (downloaded != fileSize)
+            if (downloaded != fileSize)
+            {
+                throw new InvalidOperationException($"Le fichier '{destinationPath}' n'a pas été entièrement téléchargé.");
+            }
+            File.Move(temporaryPath, destinationPath, true);
+        }
+        catch
         {
-            throw new InvalidOperationException($"Le fichier '{destinationPath}' n'a pas été entièrement téléchargé.");
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            throw;
         }
     }
 
@@ -486,5 +574,53 @@ public class FileTransferService : IFileTransferService
     {
         _httpClient.Dispose();
         _listenerCts?.Dispose();
+    }
+
+    private static string CreateSessionToken() =>
+        Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+
+    private static bool IsValidSession(TransferSessionMetadata session) =>
+        !string.IsNullOrWhiteSpace(session.SessionId)
+        && Convert.TryFromBase64String(session.SessionToken, new byte[32], out var tokenLength)
+        && tokenLength == 32
+        && DateTimeOffset.UtcNow - session.CreatedAtUtc <= SessionLifetime;
+
+    private static bool HasValidToken(HttpListenerRequest request, string expectedToken)
+    {
+        var suppliedToken = request.QueryString["token"] ?? request.Headers["X-Transfer-Token"];
+        if (string.IsNullOrWhiteSpace(suppliedToken) || string.IsNullOrWhiteSpace(expectedToken)) return false;
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                Convert.FromBase64String(expectedToken),
+                Convert.FromBase64String(suppliedToken));
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSafeRelativePath(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath)) return false;
+        var normalized = relativePath.Replace('\\', '/');
+        return normalized.Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .All(segment => segment is not "." and not "..");
+    }
+
+    private static string GetServedFileKey(string sessionId, string relativePath) =>
+        $"{sessionId}\u001f{relativePath.Replace('\\', '/')}";
+
+    private static async Task<string> ReadRequestBodyAsync(HttpListenerRequest request)
+    {
+        if (request.ContentLength64 is > MaxRequestBodyBytes)
+            throw new InvalidDataException("La requête est trop volumineuse.");
+
+        using var reader = new StreamReader(request.InputStream);
+        var payload = await reader.ReadToEndAsync().ConfigureAwait(false);
+        if (payload.Length > MaxRequestBodyBytes)
+            throw new InvalidDataException("La requête est trop volumineuse.");
+        return payload;
     }
 }

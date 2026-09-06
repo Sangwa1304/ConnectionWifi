@@ -10,7 +10,7 @@ using WindowsWifiLibrary.Models;
 using WindowsWifiLibrary.Services;
 
 namespace WindowsWifiWpf.ViewModels;
-public partial class MainViewModel : INotifyPropertyChanged
+public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly WindowsWifiDirectService _wifiService;
     private readonly IFileTransferService _transferService;
@@ -486,6 +486,27 @@ public partial class MainViewModel : INotifyPropertyChanged
     }
 
     protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    public void Dispose()
+    {
+        _ctsWatcher?.Cancel();
+        _ctsTransfert?.Cancel();
+        _ctsConction?.Cancel();
+        _wifiService.StatusChanged -= WifiService_StatusChanged;
+        _wifiService.PeerDiscovered -= WifiService_PeerDiscovered;
+        _wifiService.PeerUpdated -= WifiService_PeerUpdated;
+        _wifiService.PeerRemoved -= WifiService_PeerRemoved;
+        _wifiService.InvitationReceived -= WifiService_InvitationReceived;
+        _wifiService.ConnectionEstablished -= WifiService_ConnectionEstablished;
+        _wifiService.ConnectionClosed -= WifiService_ConnectionClosed;
+        _transferService.IncomingTransferRequested -= OnIncomingTransferRequested;
+        _ = _transferService.StopListeningAsync();
+        _transferService.Dispose();
+        _wifiService.Stop();
+        _ctsWatcher?.Dispose();
+        _ctsTransfert?.Dispose();
+        _ctsConction?.Dispose();
+    }
 
     private class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand
     {

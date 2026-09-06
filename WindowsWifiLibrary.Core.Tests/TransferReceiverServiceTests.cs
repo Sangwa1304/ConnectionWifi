@@ -122,6 +122,28 @@ public class TransferReceiverServiceTests
                 CancellationToken.None));
     }
 
+    [Fact]
+    public async Task DownloadSessionAsync_rejects_path_traversal_before_request()
+    {
+        using var destination = new TemporaryDirectory();
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("A network request was not expected."));
+        using var client = new HttpClient(handler);
+        var service = new TransferReceiverService(client);
+        var session = new TransferSessionMetadata
+        {
+                SessionId = "session",
+                Items = [new TransferItemMetadata { RelativePath = "../outside.txt", Size = 1 }]
+        };
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+                service.DownloadSessionAsync(
+                    "http://sender",
+                    session,
+                    destination.Path,
+                    new Progress<FileTransferProgress>(),
+                    CancellationToken.None));
+    }
+
     private static HttpResponseMessage JsonResponse<T>(T value)
     {
         return new HttpResponseMessage(HttpStatusCode.OK)

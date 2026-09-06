@@ -3,6 +3,7 @@ namespace LibraryMI.Models;
 public class TransferSessionMetadata
 {
     public string SessionId { get; set; } = Guid.NewGuid().ToString();
+    public string SessionToken { get; set; } = string.Empty;
     public string SenderName { get; set; } = Environment.MachineName;
     public string SenderIp { get; set; } = string.Empty;
     public int SenderPort { get; set; }

@@ -6,6 +6,8 @@
     xmlns:local="clr-namespace:WindowsWifiWpf"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:viewmodels="clr-namespace:WindowsWifiWpf.ViewModels" d:DataContext="{d:DesignInstance Type=viewmodels:MainViewModel}"
     Title="Windows Wi-Fi P2P - NextGen"
+    AutomationProperties.Name="Windows Wi-Fi P2P"
+    FocusManager.FocusedElement="{Binding RelativeSource={RelativeSource Self}}"
     Width="640"
     Height="720"
     ThemeMode="Dark"
@@ -211,6 +213,8 @@
             <!-- Zone d'invite par défaut (Si aucun fichier n'est en attente) -->
             <Button
                 Command="{Binding BrowseCommand}"
+                AutomationProperties.Name="Ajouter des fichiers ou dossiers à envoyer"
+                KeyboardNavigation.IsTabStop="True"
                 Style="{StaticResource DropZoneButtonStyle}"
                 Visibility="{Binding NoPendingFiles, Converter={StaticResource BoolToVis}}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">

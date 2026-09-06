@@ -6,4 +6,5 @@ public sealed class TransferDecision
     public string? Reason { get; set; }
     public string? DestinationFolder { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+    public string? SessionToken { get; set; }
 }
