@@ -2,6 +2,7 @@
   <Project Path="LibraryModels/LibraryMI.csproj" Id="4ff1ec0c-b39e-40b3-9de1-fae67c43cb0b" />
   <Project Path="TcpApiTransfert/TcpApiTransfert.csproj" Id="351480ab-3a22-4b42-a689-9fddbceb468f" />
   <Project Path="WindowsWifiLibrary.Core/WindowsWifiLibrary.Core.csproj" />
+  <Project Path="WindowsWifiLibrary.Core.Tests/WindowsWifiLibrary.Core.Tests.csproj" />
   <Project Path="WindowsWifiLibrary/WindowsWifiLibrary.csproj" />
   <Project Path="WindowsWifiWpf/WindowsWifiWpf.csproj" />
 </Solution>

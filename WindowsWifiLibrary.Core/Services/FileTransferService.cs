@@ -13,27 +13,39 @@ public class FileTransferService : IFileTransferService
 
     private HttpListener? _listener;
     private CancellationTokenSource? _listenerCts;
+    private Task? _listenerLoopTask;
     private readonly HttpClient _httpClient = new();
 
     private readonly Dictionary<string, TaskCompletionSource<TransferDecision>> _pairingRequests = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _servedFiles = []; 
     private readonly Dictionary<string, TransferSessionMetadata> _activeSessions = new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task StartListeningAsync(string localIp, int port, CancellationToken cancellationToken)
+    public Task StartListeningAsync(string localIp, int port, CancellationToken cancellationToken)
     {
-        if (_listener?.IsListening is true) return;
+        if (_listener?.IsListening is true) return Task.CompletedTask;
 
         _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://{localIp}:{port}/");
+        string host = localIp;
+        if (IPAddress.TryParse(localIp, out var address) && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            host = $"[{localIp}]";
+        }
+
+        _listener.Prefixes.Add($"http://{host}:{port}/");
         _listenerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _listener.Start();
+        _listenerLoopTask = ListenAsync(_listener, _listenerCts.Token);
+        return Task.CompletedTask;
+    }
 
+    private async Task ListenAsync(HttpListener listener, CancellationToken cancellationToken)
+    {
         try
         {
-            while (!_listenerCts.Token.IsCancellationRequested)
+            while (!cancellationToken.IsCancellationRequested)
             {
-                HttpListenerContext? context = await _listener.GetContextAsync().ConfigureAwait(false);
-                _ = Task.Run(() => HandleIncomingRequestAsync(context), _listenerCts.Token);
+                HttpListenerContext context = await listener.GetContextAsync().ConfigureAwait(false);
+                _ = HandleIncomingRequestAsync(context);
             }
         }
         catch (HttpListenerException) { }
@@ -95,7 +107,7 @@ public class FileTransferService : IFileTransferService
 
         try
         {
-            string url = $"http://{session.SenderIp}:{session.SenderPort}/api/transfer/accept?sessionId={session.SessionId}";
+            string url = $"http://{session.SenderIp}:{session.SenderPort}/api/transfer/accept?sessionId={Uri.EscapeDataString(session.SessionId)}";
             await _httpClient.PostAsJsonAsync(url, decision, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -130,6 +142,7 @@ public class FileTransferService : IFileTransferService
         _listenerCts?.Cancel();
         try { _listener?.Stop(); } catch { }
         _listener = null;
+        _listenerLoopTask = null;
         _servedFiles.Clear();
         _activeSessions.Clear();
         return Task.CompletedTask;

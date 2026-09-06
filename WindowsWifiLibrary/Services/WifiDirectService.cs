@@ -112,7 +112,7 @@ public sealed class WindowsWifiDirectService : IWifiDirectService
 
     public bool IsConnectToPeer(WifiDirectPeer peer)
     {
-        return  (from d in _connectedDevices where d.DeviceId == peer.Id select true) != null;
+        return _connectedDevices.Any(d => d.DeviceId == peer.Id);
     }
 
     private void OnConnectionRequested(WiFiDirectConnectionListener sender, WiFiDirectConnectionRequestedEventArgs args)

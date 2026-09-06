@@ -315,9 +315,15 @@ public partial class MainViewModel : INotifyPropertyChanged
             const int port = 5050;
 
             _ctsTransfert = new CancellationTokenSource();
-            _ = Task.Run(() => _transferService.StartListeningAsync(localIp, port, _ctsTransfert.Token));
-
-            await Task.Delay(300);
+            try
+            {
+                await _transferService.StartListeningAsync(localIp, port, _ctsTransfert.Token);
+            }
+            catch (Exception ex)
+            {
+                SetState(TransferWorkflowState.Error, $"Impossible d'ouvrir le canal de transfert sur {localIp}:{port} : {ex.Message}");
+                return;
+            }
 
             if (PendingFiles.Count > 0 && PeerWaiting != null)
             {
