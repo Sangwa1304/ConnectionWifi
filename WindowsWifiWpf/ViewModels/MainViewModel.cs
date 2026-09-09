@@ -267,6 +267,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             SelectedPeerName = target.Name;
             PeerWaiting = target;
             SetState(TransferWorkflowState.PairingRequested, $"Connexion et envoi vers {target.Name}...");
+            _ctsConction?.Cancel();
             _ctsConction = new CancellationTokenSource();
             await _wifiService.ConnectToPeerAsync(target, _ctsConction.Token);
         }
