@@ -18,7 +18,6 @@
     <ProjectReference Include="..\TcpApiTransfert\TcpApiTransfert.csproj" />
     <ProjectReference Include="..\WindowsWifiLibrary\WindowsWifiLibrary.csproj" />
     <ProjectReference Include="..\WindowsWifiLibrary.Core\WindowsWifiLibrary.Core.csproj" />
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

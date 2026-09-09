@@ -38,6 +38,12 @@ public sealed class FileTransferService : IFileTransferService
     private const long SegmentThreshold = 5 * 1024 * 1024; // Fichiers > 5Mo segmentés
     private static readonly TimeSpan SessionLifetime = TimeSpan.FromMinutes(10);
 
+    // Endpoints
+    private const string _MAP_POST_REQUEST = "/api/transfer/request";
+    private const string _MAP_POST_ACCEPT = "/api/transfer/accept";
+    private const string _MAP_GET_DOWNLOAD = "/api/transfer/download";
+    private const string _MAP_GET_SESSION = "/api/transfer/session";
+
     public event EventHandler<TransferSessionMetadata>? IncomingTransferRequested;
 
     private WebApplication? _webApp;
@@ -70,23 +76,23 @@ public sealed class FileTransferService : IFileTransferService
         };
     }
 
-    public async Task StartListeningAsync(string localIp, int port, CancellationToken cancellationToken)
+    public async Task StartListeningAsync(int port, CancellationToken cancellationToken)
     {
         if (_webApp != null) return;
 
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.ConfigureKestrel(options =>
         {
-            var ipAddress = IPAddress.TryParse(localIp, out var ip) ? ip : IPAddress.Any;
+            var ipAddress = IPAddress.Any;
             options.Listen(ipAddress, port, listenOptions =>
             {
-                listenOptions.Protocols = HttpProtocols.Http1AndHttp2AndHttp3;
+                listenOptions.Protocols = HttpProtocols.Http1AndHttp2AndHttp3; // Auto Bascule entre http3 et http2
                 listenOptions.UseHttps(CertificateHelper.GetOrCreateSelfSignedCertificate());
             });
         });
 
         _webApp = builder.Build();
-        ConfigureEndpoints(_webApp);
+        ConfigureEndpoints(_webApp); //Configuration des endpoints [route]
 
         await _webApp.StartAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -104,7 +110,8 @@ public sealed class FileTransferService : IFileTransferService
             }
             return Results.BadRequest();
         };
-        app.MapPost("/api/transfer/request", handleRequest);
+        
+        app.MapPost(_MAP_POST_REQUEST, handleRequest);
 
         Func<TransferDecision, HttpContext, IResult> handleAccept = (TransferDecision decision, HttpContext ctx) =>
         {
@@ -122,7 +129,8 @@ public sealed class FileTransferService : IFileTransferService
             }
             return Results.BadRequest();
         };
-        app.MapPost("/api/transfer/accept", handleAccept);
+        
+        app.MapPost(_MAP_POST_ACCEPT, handleAccept);
 
         Func<string, HttpContext, IResult> handleGetSession = (string sessionId, HttpContext ctx) =>
         {
@@ -133,7 +141,7 @@ public sealed class FileTransferService : IFileTransferService
             }
             return Results.NotFound();
         };
-        app.MapGet("/api/transfer/session/{sessionId}", handleGetSession);
+        app.MapGet("{_MAP_GET_SESSION}/{sessionId}", handleGetSession);
 
         Func<HttpContext, IResult> handleDownload = (HttpContext ctx) =>
         {
@@ -152,7 +160,7 @@ public sealed class FileTransferService : IFileTransferService
             }
             return Results.NotFound();
         };
-        app.MapGet("/api/transfer/download", handleDownload);
+        app.MapGet(_MAP_GET_DOWNLOAD, handleDownload);
     }
 
     public async Task<bool> RequestPairingAsync(PeerDevice targetDevice, TransferSessionMetadata metadata, CancellationToken cancellationToken)
@@ -163,7 +171,7 @@ public sealed class FileTransferService : IFileTransferService
         try
         {
             metadata.SessionState = TransferSessionState.Negotiating;
-            string url = $"https://{targetDevice.IpAddress}:{targetDevice.Port}/api/transfer/request";
+            string url = $"https://{targetDevice.IpAddress}:{targetDevice.Port}{_MAP_POST_REQUEST}";
             var response = await _httpClient.PostAsJsonAsync(url, metadata, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
@@ -212,7 +220,7 @@ public sealed class FileTransferService : IFileTransferService
 
         try
         {
-            string url = $"https://{session.SenderIp}:{session.SenderPort}/api/transfer/accept?sessionId={Uri.EscapeDataString(session.SessionId)}";
+            string url = $"https://{session.SenderIp}:{session.SenderPort}{_MAP_GET_SESSION}?sessionId={Uri.EscapeDataString(session.SessionId)}";
             await _httpClient.PostAsJsonAsync(url, decision, cancellationToken).ConfigureAwait(false);
             session.SessionState = TransferSessionState.ReadyToSend;
         }
@@ -226,7 +234,7 @@ public sealed class FileTransferService : IFileTransferService
     public async Task DownloadSessionAsync(TransferSessionMetadata session, string destinationFolder, IProgress<FileTransferProgress> progress, CancellationToken cancellationToken)
     {
         long globalBytesTransferred = 0;
-        string baseUrl = $"https://{session.SenderIp}:{session.SenderPort}/api/transfer/download";
+        string baseUrl = $"https://{session.SenderIp}:{session.SenderPort}{_MAP_GET_DOWNLOAD}";
 
         async Task ProcessItemAsync(TransferItemMetadata item)
         {
@@ -363,7 +371,7 @@ public sealed class FileTransferService : IFileTransferService
 
         foreach (string? rawPath in paths.Where(p => !string.IsNullOrWhiteSpace(p)))
         {
-            if (!File.Exists(rawPath) && !Directory.Exists(rawPath))
+            if (!Path.Exists(rawPath))
             {
                 result.Errors.Add($"Le chemin '{rawPath}' est introuvable.");
                 continue;
@@ -420,7 +428,7 @@ public sealed class FileTransferService : IFileTransferService
         if (_webApp != null)
         {
             await _webApp.StopAsync().ConfigureAwait(false);
-            await _webApp.DisposeAsync().ConfigureAwait(false);
+            if (_webApp != null) await _webApp.DisposeAsync().ConfigureAwait(false);
             _webApp = null;
         }
         _servedFiles.Clear();

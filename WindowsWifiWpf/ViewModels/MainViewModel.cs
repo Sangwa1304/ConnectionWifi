@@ -312,9 +312,10 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             SetState(TransferWorkflowState.TransferNegotiation, "⚡ Connexion sécurisée établie. Initialisation du canal...");
             
-            var localIp = e.LocalIpAddress;
-            const int port = 5050;
-
+            var localIp = IPAddress.Any.ToString();
+            const int port = 5010;
+            _ctsTransfert?.Cancel();
+            await Task.Delay(100);
             _ctsTransfert = new CancellationTokenSource();
             try
             {
