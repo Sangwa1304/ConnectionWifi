@@ -76,7 +76,7 @@ public sealed class FileTransferService : IFileTransferService
         };
     }
 
-    public async Task StartListeningAsync(int port, CancellationToken cancellationToken)
+    public async Task StartListeningAsync(string name,int port, CancellationToken cancellationToken)
     {
         if (_webApp != null) return;
 
