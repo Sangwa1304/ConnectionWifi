@@ -1,6 +1,4 @@
 namespace WindowsWifiLibrary.Models;
 
-public class WifiDirectErrorEventArgs : EventArgs
-{
-    public string Message { get; set; } = string.Empty;
-}
+public record WifiDirectErrorEventArgs(Exception? Error, string message);
+ 

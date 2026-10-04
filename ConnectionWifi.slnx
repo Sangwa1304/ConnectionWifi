@@ -1,8 +1,12 @@
 <Solution>
-  <Project Path="LibraryModels/LibraryMI.csproj" Id="4ff1ec0c-b39e-40b3-9de1-fae67c43cb0b" />
-  <Project Path="TcpApiTransfert/TcpApiTransfert.csproj" Id="351480ab-3a22-4b42-a689-9fddbceb468f" />
-  <Project Path="WindowsWifiLibrary.Core/WindowsWifiLibrary.Core.csproj" />
-  <Project Path="WindowsWifiLibrary.Core.Tests/WindowsWifiLibrary.Core.Tests.csproj" />
+  <Folder Name="/Éléments de solution/">
+    <File Path=".gitignore" />
+    <File Path="FeaturesToAdded.txt" />
+    <File Path="OsValid.txt" />
+    <File Path="README.markdown" />
+  </Folder>
+  <Project Path="ServiceTcpChared/ServiceTcpChared.csproj" Id="f2d1d2be-2bb1-41dd-bc04-d4d02c85864e" />
+  <Project Path="WifiDirectTests/WifiDirectTests.csproj" Id="ca199694-b4bb-49e6-8feb-d451def2c0b6" />
   <Project Path="WindowsWifiLibrary/WindowsWifiLibrary.csproj" />
   <Project Path="WindowsWifiWpf/WindowsWifiWpf.csproj" />
 </Solution>

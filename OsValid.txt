@@ -1,28 +1,23 @@
-10.0.26100.1
-10.0.22621.1
-10.0.22000.1
-10.0.20348.1
-10.0.19041.1
-10.0.18362.1
-10.0.17763.1
-10.0.26100.0
-10.0.22621.0
-10.0.22000.0
-10.0.20348.0
-10.0.19041.0
-10.0.18362.0
-10.0.17763.0
-10.0.26100.0
-10.0.22621.0
-10.0.22000.0
-10.0.20348.0
-10.0.19041.0
-10.0.18362.0
-10.0.17763.0
-10.0.22000.0
-10.0.20348.0
-10.0.19041.0
-10.0.18362.0
-10.0.17763.0
-8.0
-7.0
+windows10.0.26100.1        --> Valide pour le projet 
+windows10.0.22621.1        --> Valide pour le projet 
+windows10.0.22000.1        --> Valide pour le projet 
+windows10.0.20348.1        --> Valide pour le projet 
+windows10.0.19041.1        --> Valide pour le projet 
+windows10.0.18362.1        --> Valide pour le projet 
+windows10.0.17763.1        --> Valide pour le projet 
+windows10.0.26100.0        --> Valide pour le projet 
+windows10.0.22621.0        --> Valide pour le projet 
+windows10.0.22000.0        --> Valide pour le projet 
+windows10.0.20348.0        --> Valide pour le projet 
+windows10.0.19041.0        --> Valide pour le projet 
+windows10.0.18362.0        --> Valide pour le projet 
+windows10.0.17763.0        --> Valide pour le projet 
+windows10.0.26100.0        --> Valide pour le projet 
+windows10.0.22621.0        --> Valide pour le projet 
+windows10.0.22000.0        --> Valide pour le projet 
+windows10.0.20348.0        --> Valide pour le projet 
+windows10.0.19041.0        --> Valide pour le projet 
+windows10.0.18362.0        --> Valide pour le projet 
+windows10.0.17763.0        --> Valide pour le projet 
+windows8.0                 --> pas valide du tout
+windows7.0                 --> pas valide du tout
