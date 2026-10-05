@@ -1,24 +1,25 @@
-﻿namespace ServiceTcpChared;
+﻿using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 
-class AsyncCollection<T> 
+namespace ServiceTcpChared;
+
+public class AsyncCollection<T> 
 {
     CancellationTokenSource? cts = null;
     private bool NoAdded = false;
     private event Action? StopAdded;
     private event Action? Added;
     private bool Completed => _Collection.Count == 0;
-    private List<T> _Collection = [];
+    private readonly List<T> _Collection = [];
+    private List<T> Collection { get => _Collection; }
+    public event Action<CancellationToken>? NewWord;
 
     public AsyncCollection()
     {
         Added += () => cts?.Cancel();
         StopAdded += () => cts?.Cancel();
     }
-
-    private List<T> Collection { get => _Collection; }
-    public event Action<CancellationToken> NewWord;
-
-    public async Task Add(T item)
+    public async Task AddAsync(T item)
     {
         
         if (NoAdded) return;
@@ -28,25 +29,28 @@ class AsyncCollection<T>
         await Task.Delay(100);
         if (cts?.IsCancellationRequested?? false) return;
         
-        NewWord?.Invoke(cts.Token);
+        NewWord?.Invoke(cts?.Token?? default);
     }
-    public async IAsyncEnumerable<T> GetAsyncCollection()
+    public async IAsyncEnumerable<T> GetAsyncCollection([EnumeratorCancellation] CancellationToken token)
     {
-        while (true)
+        while (!token.IsCancellationRequested)
         {
-            foreach (var r in Collection)
-            {
-                yield return r;
+            if (Collection.Count != 0) 
+            { 
+                var r = Collection.First();
                 _Collection.Remove(r);
-            }
-            
-            if(!Completed)
-                    continue;
-            if (NoAdded) break;
 
+                yield return r;
+            }
+            else
+            {
+
+                if (NoAdded) break;
+            }
             cts = new();
-            await Task.Delay(10000,cts.Token);
+            await Task.Delay(5000,cts.Token);
         }
+        CompleteAdding();
 
     }
 
