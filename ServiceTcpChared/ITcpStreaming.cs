@@ -21,7 +21,7 @@ public interface ITcpStreaming
     Int32 Port { get; }
     IPAddress Address { get; }
     event Action? ConnectionClosed;
-    event Action? StreamingStarted;
+    event Action? StreamingCreated;
 
     Task StartConnection(CancellationToken token);
     void Stop();

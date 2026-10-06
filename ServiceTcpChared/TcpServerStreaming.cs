@@ -22,15 +22,13 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
     private TcpListener? Server;
     public Int32 Port { get; }
     public IPAddress Address { get; }
-    public override event Action? StreamingStarted;
+    public override event Action? StreamingCreated;
     public override event Action? ConnectionClosed;
 
-    public TcpServerStreaming(IPAddress address, int port, Action? streamReady, Action? connectionClosed)
+    public TcpServerStreaming(bool modeServer,Action counterChange) : base(counterChange)
     {
-        Port = port;
-        StreamingStarted += streamReady;
-        ConnectionClosed += connectionClosed;
-        Address = address;
+        Port = modeServer ?  Port1: Port2;
+        Address = IPAddress.Any;
     }
 
     public async Task StartConnection(CancellationToken token)
@@ -43,7 +41,8 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
             var client = await Server.AcceptTcpClientAsync(token);
 
             Stream = client.GetStream();
-            StreamingStarted?.Invoke();
+            //StreamingCreated?.Invoke();
+            _= StartSend(token);
         }
         catch (Exception)
         {

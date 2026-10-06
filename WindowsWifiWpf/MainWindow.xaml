@@ -10,6 +10,7 @@
     Title="Wi-Fi Direct P2P Hub"
     Width="Auto"
     Height="Auto"
+    ThemeMode="Dark"
     Background="#FF151618"
     Foreground="#F8FAFC"
     WindowStartupLocation="CenterScreen"
@@ -125,7 +126,7 @@
                         Margin="0,2,0,0"
                         FontSize="12"
                         Foreground="#94A3B8"
-                        Text="Connexion P2P et transfert HTTP sécurisé" />
+                        Text="Connexion P2P et transfert TCP sécurisé" />
                 </StackPanel>
                 <StackPanel
                     Grid.Column="1"
@@ -163,11 +164,11 @@
         <!--  CORPS PRINCIPAL  -->
         <Grid Grid.Row="1">
 
-            <!--  GAUCHE : Wi-Fi Direct  -->
+            <!--  GAUCHE : Wi-Fi Direct {Binding ConnectedVisibilityOff} -->
             <Border
-                Visibility="Hidden"
                 Grid.Column="0"
                 Padding="16"
+                Visibility="{Binding ConnectedVisibilityOff}"
                 Background="#1E293B"
                 CornerRadius="12">
                 <Grid>
@@ -269,26 +270,43 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
-
-                    <Button
-                        x:Name="ConnectButton"
-                        Grid.Row="3"
-                        Margin="0,12,0,0"
-                        Content="Se connecter à l'appareil"
-                        Style="{StaticResource ModernButtonStyle}" />
                 </Grid>
             </Border>
             <Border 
                 Grid.Column="0"
                 Padding="16"
+                Visibility ="{Binding ConnectedVisibilityOn}"
                 Background="#1E293B"
-                CornerRadius="12"
-                Visibility="{Binding ConnectedVisibilityOn}">
+                CornerRadius="12">
                 <StackPanel>
-                    <TextBlock 
-                        FontSize="20"
-                        HorizontalAlignment="Center"
-                        Text="{Binding PeerConnecte.Name}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock 
+                            FontSize="20"
+                            Text="{Binding PeerConnecte.Name}" HorizontalAlignment="Left"/>
+                        <Button 
+                            Content="Deconnecte"
+                            Click="DisconnectButton_Click"/>
+                    </StackPanel>
+                    
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Flux Entrant : "/>
+                        <TextBlock Text="{Binding FileClient}"/>
+                    </StackPanel>
+                    <ProgressBar 
+                        Margin="0,5" 
+                        Value="{Binding CounterClient}" 
+                        Height="8"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Flux Sortant : "/>
+                        <TextBlock Text="{Binding FileServer}"/>
+                    </StackPanel>
+                    <ProgressBar 
+                        Margin="0,5" 
+                        Height="8"
+                        Value="{Binding CounterServer}" />
+                    <ListBox >
+                        
+                    </ListBox>
                 </StackPanel>
             </Border>
         </Grid>

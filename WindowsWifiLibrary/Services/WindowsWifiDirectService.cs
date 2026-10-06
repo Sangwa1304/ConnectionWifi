@@ -6,7 +6,7 @@ using WindowsWifiLibrary.Models;
 
 namespace WindowsWifiLibrary.Services 
 { 
-    public class WindowsWifiDirectService : IWifiDirectService 
+    public sealed class WindowsWifiDirectService : IWifiDirectService 
     {
          
         private WiFiDirectAdvertisementPublisher? _publisher; 
@@ -24,7 +24,7 @@ namespace WindowsWifiLibrary.Services
 
         public WindowsWifiDirectService()
         {
-            if(!InitializeAsync().GetAwaiter().GetResult())
+            if(!InitializeAsync(default).GetAwaiter().GetResult())
             {
                 throw new Exception("service wifi indisponible");
             }
@@ -53,10 +53,11 @@ namespace WindowsWifiLibrary.Services
         public event EventHandler<WifiDirectPeerEventArgs>? ConnectionClosed; 
         public event EventHandler<WifiDirectErrorEventArgs>? Error; 
  
-        public async Task<bool> InitializeAsync() 
+        public async Task<bool> InitializeAsync(CancellationToken token) 
         { 
             try 
-            { 
+            {
+                token.ThrowIfCancellationRequested();
                 var deviceSelector = WiFiDirectDevice.GetDeviceSelector(); 
                 var devices = await DeviceInformation.FindAllAsync(deviceSelector); 
                 
@@ -71,9 +72,9 @@ namespace WindowsWifiLibrary.Services
             } 
         }
  
-        public Task StartPublishingAsync() 
+        public Task StartPublishingAsync(CancellationToken token) 
         { 
-            return Task.Run(() => 
+            return Task.Run(async () => 
             { 
                 StopPublisher(); 
  
@@ -82,16 +83,16 @@ namespace WindowsWifiLibrary.Services
                 _publisher.Advertisement.IsAutonomousGroupOwnerEnabled = true; 
  
                 _listener = new WiFiDirectConnectionListener(); 
-                _listener.ConnectionRequested += OnConnectionRequested; 
- 
+                _listener.ConnectionRequested += OnConnectionRequested;
+                await Task.Delay(1000, token);
                 _publisher.Start(); 
                 PublisherStatus = WifiDirectPublicherStatus.Started;
-            }); 
+            },token); 
         } 
  
-        public Task StartSubscribingAsync() 
+        public Task StartSubscribingAsync(CancellationToken token) 
         { 
-            return Task.Run(() => 
+            return Task.Run(async () => 
             { 
                 StopWatcher(); 
  
@@ -100,24 +101,27 @@ namespace WindowsWifiLibrary.Services
                 
                 _deviceWatcher.Added += OnDeviceAdded;
                 _deviceWatcher.Updated += OnDeviceUpdated; 
-                _deviceWatcher.Removed += OnDeviceRemoved; 
- 
+                _deviceWatcher.Removed += OnDeviceRemoved;
+                await Task.Delay(1000, token);
                 _deviceWatcher.Start(); 
                 WatcherStatus= WifiDirectWatcherStatus.Started; 
-            }); 
+            },token); 
         } 
  
-        public async Task StartPublisherSubscribingAsync() 
-        { 
-            await StartPublishingAsync(); 
-            await StartSubscribingAsync();
+        public async Task StartPublisherSubscribingAsync(CancellationToken token) 
+        {
+            if (token.IsCancellationRequested) return;
+            await StartPublishingAsync(token); 
+            await StartSubscribingAsync(token);
+            if (token.IsCancellationRequested) Stop();
             CurrentStatus = WifiDirectStatus.Disconnected;
         }
 
-        public async Task<bool> DisconnectToPeerAsync(WifiDirectPeer peer)
+        public async Task<bool> DisconnectToPeerAsync(WifiDirectPeer peer,CancellationToken token)
         {
             foreach (var device in _connectedDevices.ToList())
             {
+                if (token.IsCancellationRequested) return false;
                 if (device.DeviceId == peer.Id)
                 {
                     device.Dispose();
@@ -127,14 +131,14 @@ namespace WindowsWifiLibrary.Services
             return false;
 
         }
-        public async Task<bool> ConnectToPeerAsync(WifiDirectPeer peer) 
-        { 
+        public async Task<bool> ConnectToPeerAsync(WifiDirectPeer peer,CancellationToken token) 
+        {
             try
             { 
                 WiFiDirectDevice wfdDevice = await WiFiDirectDevice.FromIdAsync(peer.Id); 
                 if (wfdDevice != null) 
                 { 
-                    HandleSuccessfulConnection(wfdDevice);
+                    HandleSuccessfulConnection(wfdDevice,true);
                     return true;
                 } 
                 else 
@@ -201,7 +205,7 @@ namespace WindowsWifiLibrary.Services
             }
             return Task.CompletedTask; 
         }
-        private void HandleSuccessfulConnection(WiFiDirectDevice wfdDevice) 
+        private void HandleSuccessfulConnection(WiFiDirectDevice wfdDevice,bool ModeServerOrClient = false) 
         { 
             _connectedDevices.Add(wfdDevice);
             wfdDevice.ConnectionStatusChanged += OnDeviceConnectionStatusChanged; 
@@ -211,14 +215,15 @@ namespace WindowsWifiLibrary.Services
             {
                 string localIp = endpointPairs[0].LocalHostName?.CanonicalName ?? string.Empty; 
                 string remoteIp = endpointPairs[0].RemoteHostName?.CanonicalName ?? string.Empty; 
+                
+                CurrentStatus = WifiDirectStatus.Connected;
  
-                CurrentStatus = WifiDirectStatus.Connected; 
- 
-                ConnectionEstablished?.Invoke(this, new (localIp,remoteIp, wfdDevice.DeviceId)); 
+                ConnectionEstablished?.Invoke(this, new (ModeServerOrClient,remoteIp, wfdDevice.DeviceId));
+                StopAllToMaintainWifiDirectConnection();
             } 
-            else 
+            else
             {
-                DisconnectToPeerAsync(new(wfdDevice.DeviceId,"")).Wait();
+                DisconnectToPeerAsync(new(wfdDevice.DeviceId,""),default).Wait();
                 ReportError(message:"Connexion établie mais aucune adresse IP n'a pu être assignée.");
 
             } 
@@ -315,6 +320,12 @@ namespace WindowsWifiLibrary.Services
         public void Dispose()
         {
             Stop();
+        }
+
+        private void StopAllToMaintainWifiDirectConnection()
+        {
+            StopPublisher();
+            StopWatcher();
         }
     }
 }

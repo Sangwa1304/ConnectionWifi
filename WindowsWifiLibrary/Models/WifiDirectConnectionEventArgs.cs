@@ -1,4 +1,4 @@
 namespace WindowsWifiLibrary.Models;
 
-public record WifiDirectConnectionEventArgs(string LocalIpAddress, string RemoteIpAddress, string Id);
+public record WifiDirectConnectionEventArgs(bool ServerMode, string RemoteIpAddress, string Id);
 

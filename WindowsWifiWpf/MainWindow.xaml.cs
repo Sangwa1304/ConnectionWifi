@@ -1,8 +1,11 @@
 using Microsoft.Win32;
+using ServiceTcpChared;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Net;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using Windows.System.Profile;
 using WindowsWifiLibrary.Models;
@@ -16,30 +19,42 @@ namespace WindowsWifiWpf;
 /// </summary>
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
+    private WindowsWifiDirectService _wifiService;
+    private CancellationTokenSource _cts;
+    private CancellationTokenSource _ctsTcp;
+    private bool Sender = false;
+    private TcpClientStreaming? ClientInstance;
+    public float CounterClient { get => ClientInstance?.Percentage ?? 0; set; }
+    private void CounterClientChange() => PropertyChanged?.Invoke(this,new(nameof(CounterClient)));
+    private void FileClientChange() => PropertyChanged?.Invoke(this, new(nameof(FileClient)));
+    public string FileClient { get => ClientInstance?.FileReceivedOrSend ?? ""; set; }
+    public string FilServer { get => ServerInstance?.FileReceivedOrSend ?? ""; set; }
+    private TcpServerStreaming? ServerInstance;
+    public float CounterServer { get => ServerInstance?.Percentage ?? 0; set; }
+    private void FileServerChange() => PropertyChanged?.Invoke(this, new(nameof(FilServer)));
+    private void CounterServerChange() => PropertyChanged?.Invoke(this,new(nameof(CounterServer)));
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     private bool GetConnecteVisibility()
     {
-        switch(_wifiService.CurrentStatus)
+        
+        return _wifiService?.CurrentStatus switch
         {
-            case WifiDirectStatus.Connected:
-                return true;
-            default:
-                return false;
-        }
+            WifiDirectStatus.Connected => true,
+            _ => false,
+        };
     }
     private bool GetStartVisibility()
     {
         if (_wifiService == null) return true;
-        switch (_wifiService.CurrentStatus)
+        return _wifiService.CurrentStatus switch
         {
-            case WifiDirectStatus.Closed:
-                return true;
-            default:
-                return false;
-        }
+            WifiDirectStatus.Closed => true,
+            _ => false,
+        };
     }
 
-    private WifiDirectPeer? _PeerConnecte = null;
+    private WifiDirectPeer? _PeerConnecte;
     public WifiDirectPeer PeerConnecte 
     { 
         get => _PeerConnecte?? new("","");
@@ -59,11 +74,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow()
     {
         InitializeComponent();
-
         _ = Task.Run(() =>
         {
             _wifiService = new();
-
             _wifiService.StatusChanged += WifiService_StatusChanged;
             _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
             _wifiService.PeerUpdated += WifiService_PeerUpdated;
@@ -76,14 +89,35 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     }
 
-    private WindowsWifiDirectService _wifiService;
+    private void ClientInstance_StreamingCreated()
+    {
+        throw new NotImplementedException();
+    }
 
-    public event PropertyChangedEventHandler? PropertyChanged;
+    private void ServerInstance_StreamingCreated()
+    {
+        throw new NotImplementedException();
+    }
+
+    private void ServerInstance_ConnectionClosed()
+    {
+        throw new NotImplementedException();
+    }
+
+    private void ClientInstance_ConnectionClosed()
+    {
+        throw new NotImplementedException();
+    }
 
     private async void StartButton_Click(object sender, RoutedEventArgs e)
     {
+        
+        await ConfigureTransferEndpointAsync(new(false, IPAddress.Loopback.ToString(),"ddgddddfdf"));
+        /*
         PeersDiscoved.Clear();
-        await RunUiOperationAsync(() => _wifiService.StartPublisherSubscribingAsync());
+        _cts?.Cancel();
+        _cts = new();
+        await RunUiOperationAsync(() => _wifiService.StartPublisherSubscribingAsync(_cts.Token));*/
 
     }
 
@@ -100,23 +134,42 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void StopButton_Click(object sender, RoutedEventArgs e)
     {
+        _cts?.Cancel();
         _wifiService?.Stop();
         MessageText.Text = "Services arrêtés.";
     }
 
-    private async void ConnectButton_Click(object sender, RoutedEventArgs e)
+    public ICommand ConnectButton_Click(WifiDirectPeer peerConnection)
     {
+        return new CommandL();
     }
+    /*private async void ConnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        
+    }*/
 
     private void BrowseButton_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog { CheckFileExists = true, Multiselect = false, DefaultDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) };
+        
+        var dialog = new OpenFileDialog 
+        { 
+            CheckFileExists = true, Multiselect = false, DefaultDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) 
+        };
         
     }
-
+    private void DisconnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        _ctsTcp?.Cancel();
+        ServerInstance?.Stop();
+        ClientInstance?.Stop();
+        _ = _wifiService.DisconnectToPeerAsync(PeerConnecte);
+        PeerConnecte = null;
+    }
+    
     private async void SendButton_Click(object sender, RoutedEventArgs e)
     {
-
+        ServerInstance?.FilesToSend.AddAsync([]).Wait();
+        
     }
 
     private async void WifiService_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e)
@@ -146,15 +199,33 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     private async void WifiService_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e)
     {
-        if (!Dispatcher.CheckAccess())
-        {
-            PeerConnecte = null;
-        }
+        ServerInstance?.Stop();
+        ClientInstance?.Stop();
+
+        PeerConnecte = null;
+        
     }
 
     private async Task ConfigureTransferEndpointAsync(WifiDirectConnectionEventArgs e)
     {
-
+        ServerInstance?.Stop();
+        ServerInstance = new(e.ServerMode, CounterServerChange);
+        ClientInstance?.Stop();
+        ClientInstance = new(e.RemoteIpAddress,e.ServerMode, CounterClientChange);
+        _ctsTcp?.Cancel();
+        _ctsTcp = new();
+        ClientInstance.FileChange += FileClientChange;
+        ServerInstance.FileChange += FileServerChange;
+        if (e.ServerMode)
+        {
+            _=ServerInstance.StartConnection(_ctsTcp.Token);
+            _ = ClientInstance.StartConnection(_ctsTcp.Token);
+        }
+        else
+        {
+            _ = ClientInstance.StartConnection(_ctsTcp.Token);
+            _ = ServerInstance.StartConnection(_ctsTcp.Token);
+        }
     }
 
     private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e)
@@ -165,6 +236,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             StatusText.Text = e.Status.ToString();
             OnPropertyChanged(nameof(StartB));
             OnPropertyChanged(nameof(StopB));
+            OnPropertyChanged(nameof(ConnectedVisibilityOn));
+            OnPropertyChanged(nameof(ConnectedVisibilityOff));
         });
     }
     
@@ -276,5 +349,20 @@ internal class Combo(string message, string? status = null,Brush? color = null )
     internal string Statut(string status)
     {
         return _Status?? status;
+    }
+}
+
+public class CommandL : ICommand
+{
+    public event EventHandler? CanExecuteChanged;
+
+    public bool CanExecute(object? parameter)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void Execute(object? parameter)
+    {
+        throw new NotImplementedException();
     }
 }

@@ -23,24 +23,76 @@ namespace ServiceTcpChared;
 
 public class StreamingData
 {
-    public long Counter { get; private set; } = 0;
-    public bool IsWorking { get => IsReceving && IsSending; }
-    public bool IsReceving { get; private set; } = false;
-    public bool IsSending { get; private set; } = false;
+    public enum TransfertType
+    {
+        Recu,
+        Envoi
+
+    }
+    public record FileFinishe(string Name, long Length, TransfertType Transfert,DateTime Time );
+    public const int Port1 = 1304;
+    public const int Port2 = 1904;
+    public float Percentage { get
+        {
+            float p = _Counter - Counter;
+            p *= 100;
+            p /= _Counter;
+            return p;
+        } }
+    private long _Counter { get;set; } = 0;
+    public static string DownloadDirectory { get; } = Path.Combine(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),"Shareboost");
+    public event Action? CounterChange;
+    public event Action? FileChange;
+    private string _FileReceivedOrSend = "";
+    private long _counter = 0;
+    public string FileReceivedOrSend
+    {
+        get => _FileReceivedOrSend;
+        private set
+        {
+            _FileReceivedOrSend = value;
+            FileChange?.Invoke();
+        }
+    }
+    public long Counter { 
+        get=>_counter; 
+        private set 
+        {
+            _counter = value;
+            CounterChange?.Invoke();
+        } }
+    public readonly List<FileFinishe> FilesFiniched = new();
+    public event Func<string[], bool> FilesComming;
+    public bool IsWorking { get => IsSending && IsReceving; }
+    public bool IsReceving { get=> ReceveidTask?.Status == TaskStatus.Running; }
+    public bool IsSending { get => SendTask?.Status == TaskStatus.Running; } 
+    private Task? SendTask;
+    private Task? ReceveidTask;
     protected NetworkStream? Stream;
     public readonly AsyncCollection<string[]> FilesToSend = new();
     protected long buffer = 2048576; // 2 Mo
-    public virtual event Action? StreamingStarted;
+
+    public StreamingData(Action counterChange)
+    {
+        if(!Directory.Exists(DownloadDirectory))
+        {
+            _= Directory.CreateDirectory(DownloadDirectory);
+        }
+        CounterChange = counterChange;
+    }
+
+    public virtual event Action? StreamingCreated;
     public virtual event Action? ConnectionClosed;
 
-    public async Task StartSend(string[] files, CancellationToken token)
+    public async Task StartSend( CancellationToken token, string[]? files = null)
     {
-        await FilesToSend.AddAsync(files);
-        token.Register(() => IsSending = false);
-        _ = Task.Run(async () =>
+        
+        if (files != null)await FilesToSend.AddAsync(files);
+        if (IsSending) return;
+        token.Register(() => SendTask?.Dispose());
+        SendTask?.Dispose();
+        SendTask = Task.Run(async () =>
         {
-
-            IsSending = true;
             await foreach(var files in FilesToSend.GetAsyncCollection(token))
             {
                 if (!await ReceiveResponseAsync(token)) return;
@@ -75,8 +127,9 @@ public class StreamingData
                         await Task.Delay(1000, token);
                         
                         using FileStream file = new(path: path, FileMode.Open, FileAccess.Read);
+                        _Counter = file.Length;
                         Counter = file.Length;
-
+                        FileReceivedOrSend = requestedMeta.NameWithExtension;
                         byte[] bytes = new byte[buffer];
                         int i;
 
@@ -90,6 +143,8 @@ public class StreamingData
 
                             Counter -= i;
                         }
+                        FilesFiniched.Add(new(requestedMeta.NameWithExtension, requestedMeta.Length, TransfertType.Envoi, DateTime.Now));
+                        _Counter = 0;
                         pathlist.Remove(requestedMeta);
                     }
                 }
@@ -99,54 +154,57 @@ public class StreamingData
                 }
             }
 
-            IsSending = false;
         }, token);
     }
 
-    public async Task StartReceived(string downloadDirectory, CancellationToken token)
+    public async Task StartReceived(CancellationToken token)
     {
-        token.Register(() => IsReceving = false);
-        IsReceving = true;
-        while (!token.IsCancellationRequested)
+        
+        if (IsReceving) return;
+        token.Register(() => ReceveidTask?.Dispose());
+
+        ReceveidTask?.Dispose();
+        ReceveidTask = Task.Run(async () =>
         {
-            await SendResponseAsync(true, token);
-            await Task.Delay(100,token);
-
-            List<InfoMeta> infoMetaArgsReceived = [.. await ReceivedAllsMetaFromServer(token)];
-
-            while (infoMetaArgsReceived.Count != 0 && !token.IsCancellationRequested)
+            while (!token.IsCancellationRequested)
             {
-                var metaFile = infoMetaArgsReceived.First();
-                await Task.Delay(100,token);
+                await SendResponseAsync(true, token);
+                await Task.Delay(100, token);
 
+                List<InfoMeta> infoMetaArgsReceived = [.. await ReceivedAllsMetaFromServer(token)];
 
-                string temp = metaFile.GetTempFile(downloadDirectory, ".san");
-                string direct = metaFile.GetDirectFile(downloadDirectory);
-
-                // Côté client : envoyer la métadonnée au serveur
-                await SendMetaEchantillonToServerAsync(metaFile);
-
-                if (!await ReceiveResponseAsync(token))
+                while (infoMetaArgsReceived.Count != 0 && !token.IsCancellationRequested)
                 {
-                    infoMetaArgsReceived.Remove(metaFile);
-                    continue;
-                }
+                    var metaFile = infoMetaArgsReceived.First();
+                    await Task.Delay(100, token);
 
-                // Côté client : recevoir le fichier et l'écrire
-                using (var stm = File.Create(temp))
-                {
-                    long state = 0;
-                    await foreach (var f in StartReadBytesAsync((() => {  Console.WriteLine("Fichier reçu avec succès !"); }), metaFile.Length, token))
+
+                    string temp = metaFile.GetTempFile(DownloadDirectory, ".san");
+                    string direct = metaFile.GetDirectFile(DownloadDirectory);
+                    FileReceivedOrSend = metaFile.NameWithExtension;
+                    // Côté client : envoyer la métadonnée au serveur
+                    await SendMetaEchantillonToServerAsync(metaFile);
+
+                    if (!await ReceiveResponseAsync(token))
                     {
-                        state += f.Length;
-                        await stm.WriteAsync(f, token);
+                        infoMetaArgsReceived.Remove(metaFile);
+                        continue;
                     }
+
+                    // Côté client : recevoir le fichier et l'écrire
+                    using (var stm = File.Create(temp))
+                    {
+                        await foreach (var f in StartReadBytesAsync((() => { Console.WriteLine("Fichier reçu avec succès !"); }), metaFile.Length, token))
+                        {
+                            await stm.WriteAsync(f, token);
+                        }
+                    }
+                    FilesFiniched.Add(new(infoMetaArgsReceived.NameWithExtension, infoMetaArgsReceived.Length, TransfertType.Recu, DateTime.Now));
+                    infoMetaArgsReceived.Remove(metaFile);
+                    File.Move(temp, direct);
                 }
-                infoMetaArgsReceived.Remove(metaFile);
-                File.Move(temp, direct);
             }
-        }
-        IsReceving = false;
+        },token);
     }
 
     private async Task SendAllsMetasToClient(string metaArgsForSend, CancellationToken token)
@@ -168,11 +226,11 @@ public class StreamingData
         return InfoMeta.GetObjectMetasTabel(nb).Meta;
     }
 
-    public virtual void Stop() { }
+    public virtual void Stop() { Stream?.Dispose(); }
 
     public async IAsyncEnumerable<ReadOnlyMemory<byte>> StartReadBytesAsync(Action fileComplete, long count, [EnumeratorCancellation] CancellationToken token)
     {
-        Counter = count;
+        _Counter = Counter = count;
         byte[] bytes = new byte[buffer];
         int i;
 

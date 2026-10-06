@@ -18,23 +18,13 @@ namespace ServiceTcpChared;
 
 internal class Program
 {
-    private static TcpClientStreaming client1;
-    private static TcpClientStreaming client2;
-    private static TcpServerStreaming server1;
-    private static TcpServerStreaming server2;
+    private static CancellationTokenSource _ctsTcp;
+    private static TcpClientStreaming ClientInstance;
+    private static TcpServerStreaming ServerInstance;
 
-    public static string DownloadDirectory { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-
+    
     public async static Task Main(string[] args)
     {
-        client1 = new TcpClientStreaming(IPAddress.Loopback, 14000, Stopserver1(), null);
-        client2 = new TcpClientStreaming(IPAddress.Loopback, 15000, Stopserver2(), null);
-        server1 = new TcpServerStreaming(IPAddress.Any, 15000, Stopclient1(), null);
-        server2 = new TcpServerStreaming(IPAddress.Any, 14000, Stopclient2(), null);
-
-        _ = server1.StartConnection(default);
-        await client2.StartConnection(default);
-
         string[] files =
             {
             "C:\\Users\\Glory San\\Documents\\CodeWorkspace\\Code_Csharp\\Documentation\\dotnet-api-dotnet-api-docs-temp-_splitted-system-net-10.0.pdf",
@@ -42,17 +32,44 @@ internal class Program
             
             };
 
-        // Démarrage du serveur pour l'écoute des demandes
-        _ = server1.StartSend(files, default);
+        ServerInstance?.Stop();
+        ServerInstance = new(true, CounterServerChange);
+        ClientInstance?.Stop();
+        ClientInstance = new(IPAddress.Loopback.ToString(), true, CounterClientChange);
+        _ctsTcp?.Cancel();
+        _ctsTcp = new();
+        ServerInstance.FileChange += FileClientChange;
+        if (true)
+        {
+            _ = ServerInstance.StartConnection(_ctsTcp.Token);
+            _ = ClientInstance.StartConnection(_ctsTcp.Token);
+        }
+        else
+        {
+            _ = ClientInstance.StartConnection(_ctsTcp.Token);
+            _ = ServerInstance.StartConnection(_ctsTcp.Token);
+        }
 
-        // Boucle côté client pour réclamer et recevoir chaque fichier
-        _= client2.StartReceived(DownloadDirectory,default);
-        await Task.Delay(15000);
-        await server1.FilesToSend.AddAsync(["C:\\Users\\Glory San\\Documents\\CodeWorkspace\\Code_Csharp\\Documentation\\uwp-api-docs-conceptual-toc-winrt.pdf"]);
+        await ServerInstance.FilesToSend.AddAsync(files);
         while (true) ;
+        
     }
-    private static Action Stopserver1() => () => server1?.Stop();
-    private static Action Stopserver2() => () => server2?.Stop();
-    private static Action Stopclient1() => () => client1?.Stop();
-    private static Action Stopclient2() => () => client2?.Stop();
+
+    private static void CounterClientChange()
+    {
+        Console.WriteLine("Client " + ClientInstance.Percentage.ToString());
+    }
+    
+    private static void FileClientChange()
+    {
+        Console.WriteLine("Client " + ClientInstance.FileReceivedOrSend);
+    }
+    private static void FileServerChange()
+    {
+        Console.WriteLine("Server " + ServerInstance.FileReceivedOrSend);
+    }
+    private static void CounterServerChange()
+    {
+        Console.WriteLine("Server " + ServerInstance.Percentage.ToString());
+    }
 }
