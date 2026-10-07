@@ -21,7 +21,7 @@ public interface IWifiDirectService : IDisposable
     Task StartPublishingAsync(CancellationToken token); 
     Task StartSubscribingAsync(CancellationToken token); 
     Task StartPublisherSubscribingAsync(CancellationToken token);
-    Task<bool> DisconnectToPeerAsync(WifiDirectPeer peer, CancellationToken token);
+    bool DisconnectToPeer(ref WifiDirectPeer? peer, CancellationToken token);
     Task<bool> ConnectToPeerAsync(WifiDirectPeer peer, CancellationToken token);
     Task<bool> AcceptInvitationAsync(string token);
     Task RejectInvitationAsync(string token);

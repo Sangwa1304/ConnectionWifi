@@ -14,6 +14,7 @@
 
 using Newtonsoft.Json;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -62,7 +63,7 @@ public class StreamingData
             CounterChange?.Invoke();
         } }
     public readonly List<FileFinishe> FilesFiniched = new();
-    public event Func<string[], bool> FilesComming;
+    public event Func<IEnumerable<InfoMeta>, bool> FilesComming;
     public bool IsWorking { get => IsSending && IsReceving; }
     public bool IsReceving { get=> ReceveidTask?.Status == TaskStatus.Running; }
     public bool IsSending { get => SendTask?.Status == TaskStatus.Running; } 
@@ -93,65 +94,75 @@ public class StreamingData
         SendTask?.Dispose();
         SendTask = Task.Run(async () =>
         {
-            await foreach(var files in FilesToSend.GetAsyncCollection(token))
+            try
             {
-                if (!await ReceiveResponseAsync(token)) return;
-                Dictionary<InfoMeta, string> pathlist = InfoMeta.GetMetas(files);
-                string metaArgsForSend = InfoMeta.GetJsonMetasTabel(InfoMeta.GetInfoMetaArgs(pathlist));
-                try
+                await foreach (var files in FilesToSend.GetAsyncCollection(token))
                 {
-                    await SendAllsMetasToClient(metaArgsForSend, token);
-                    await Task.Delay(1000);
-                    while(pathlist.Count != 0)
+                    if (!await ReceiveResponseAsync(token)) return;
+                    Dictionary<InfoMeta, string> pathlist = InfoMeta.GetMetas(files);
+                    string metaArgsForSend = InfoMeta.GetJsonMetasTabel(InfoMeta.GetInfoMetaArgs(pathlist));
+                    try
                     {
-                        InfoMeta? requestedMeta = null;
-                        var requestedMetastring = await ReceivedMetaEchnatillonFromClientAsync(token: token);
-                        try
+                        await SendAllsMetasToClient(metaArgsForSend, token);
+                        await Task.Delay(1000);
+                        if (!await ReceiveResponseAsync(token)) continue;
+                        while (pathlist.Count != 0)
                         {
-                            requestedMeta = InfoMeta.Object(requestedMetastring);
-                        }
-                        catch (Exception ex)
-                        {
-                            await SendResponseAsync(false, token);
-                            Console.WriteLine($"Erreur de désérialisation des métadonnées : {ex.Message}");
-                            continue;
-                        }
-
-                        if (requestedMeta == null || !InfoMeta.GetInstanceDirectory(requestedMeta, pathlist, out var path))
-                        {
-                            await SendResponseAsync(false,token);
-                            continue;
-
-                        }
-                        await SendResponseAsync(true, token);
-                        await Task.Delay(1000, token);
-                        
-                        using FileStream file = new(path: path, FileMode.Open, FileAccess.Read);
-                        _Counter = file.Length;
-                        Counter = file.Length;
-                        FileReceivedOrSend = requestedMeta.NameWithExtension;
-                        byte[] bytes = new byte[buffer];
-                        int i;
-
-                        while ((i = await file.ReadAsync(bytes, token)) != 0)
-                        {
-                            if (Stream != null)
+                            InfoMeta? requestedMeta = null;
+                            var requestedMetastring = await ReceivedMetaEchnatillonFromClientAsync(token: token);
+                            try
                             {
-                                await Stream.WriteAsync(bytes.AsMemory(0, i), token);
-                                
+                                requestedMeta = InfoMeta.Object(requestedMetastring);
+                            }
+                            catch (Exception ex)
+                            {
+                                await SendResponseAsync(false, token);
+                                Console.WriteLine($"Erreur de désérialisation des métadonnées : {ex.Message}");
+                                continue;
                             }
 
-                            Counter -= i;
+                            if (requestedMeta == null || !InfoMeta.GetInstanceDirectory(requestedMeta, pathlist, out var path))
+                            {
+                                await SendResponseAsync(false, token);
+                                continue;
+
+                            }
+                            await SendResponseAsync(true, token);
+                            await Task.Delay(1000, token);
+
+                            using FileStream file = new(path: path, FileMode.Open, FileAccess.Read);
+                            _Counter = file.Length;
+                            Counter = file.Length;
+                            FileReceivedOrSend = requestedMeta.NameWithExtension;
+                            byte[] bytes = new byte[buffer];
+                            int i;
+
+                            while ((i = await file.ReadAsync(bytes, token)) != 0)
+                            {
+                                if (Stream != null)
+                                {
+                                    await Stream.WriteAsync(bytes.AsMemory(0, i), token);
+
+                                }
+
+                                Counter -= i;
+                            }
+                            FilesFiniched.Add(new(requestedMeta.NameWithExtension, requestedMeta.Length, TransfertType.Envoi, DateTime.Now));
+                            _Counter = 0;
+                            pathlist.Remove(requestedMeta);
                         }
-                        FilesFiniched.Add(new(requestedMeta.NameWithExtension, requestedMeta.Length, TransfertType.Envoi, DateTime.Now));
-                        _Counter = 0;
-                        pathlist.Remove(requestedMeta);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Erreur d'envoi : {ex.Message}");
                     }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Erreur d'envoi : {ex.Message}");
-                }
+            }
+            
+            catch(Exception)
+            {
+                Stream?.Dispose();
+                ConnectionClosed?.Invoke();
             }
 
         }, token);
@@ -166,43 +177,72 @@ public class StreamingData
         ReceveidTask?.Dispose();
         ReceveidTask = Task.Run(async () =>
         {
-            while (!token.IsCancellationRequested)
+            try
             {
-                await SendResponseAsync(true, token);
-                await Task.Delay(100, token);
-
-                List<InfoMeta> infoMetaArgsReceived = [.. await ReceivedAllsMetaFromServer(token)];
-
-                while (infoMetaArgsReceived.Count != 0 && !token.IsCancellationRequested)
+                while (!token.IsCancellationRequested)
                 {
-                    var metaFile = infoMetaArgsReceived.First();
+                    await SendResponseAsync(true, token);
                     await Task.Delay(100, token);
 
+                    List<InfoMeta> infoMetaArgsReceived = [.. await ReceivedAllsMetaFromServer(token)];
 
-                    string temp = metaFile.GetTempFile(DownloadDirectory, ".san");
-                    string direct = metaFile.GetDirectFile(DownloadDirectory);
-                    FileReceivedOrSend = metaFile.NameWithExtension;
-                    // Côté client : envoyer la métadonnée au serveur
-                    await SendMetaEchantillonToServerAsync(metaFile);
-
-                    if (!await ReceiveResponseAsync(token))
+                    if (FilesComming?.Invoke(infoMetaArgsReceived) ?? false)
                     {
-                        infoMetaArgsReceived.Remove(metaFile);
-                        continue;
+                        await SendResponseAsync(false, token);
+                        await Task.Delay(2000);
+                    }
+                    else
+                    {
+                        await SendResponseAsync(true, token);
+                        await Task.Delay(2000);
+
                     }
 
-                    // Côté client : recevoir le fichier et l'écrire
-                    using (var stm = File.Create(temp))
+                    try
                     {
-                        await foreach (var f in StartReadBytesAsync((() => { Console.WriteLine("Fichier reçu avec succès !"); }), metaFile.Length, token))
+                        while (infoMetaArgsReceived.Count != 0 && !token.IsCancellationRequested)
                         {
-                            await stm.WriteAsync(f, token);
+                            var metaFile = infoMetaArgsReceived.First();
+                            await Task.Delay(100, token);
+
+
+                            string temp = metaFile.GetTempFile(DownloadDirectory, ".san");
+                            string direct = metaFile.GetDirectFile(DownloadDirectory);
+                            FileReceivedOrSend = metaFile.NameWithExtension;
+                            // Côté client : envoyer la métadonnée au serveur
+                            await SendMetaEchantillonToServerAsync(metaFile);
+
+                            if (!await ReceiveResponseAsync(token))
+                            {
+                                infoMetaArgsReceived.Remove(metaFile);
+                                continue;
+                            }
+
+                            // Côté client : recevoir le fichier et l'écrire
+                            using (var stm = File.Create(temp))
+                            {
+                                await foreach (var f in StartReadBytesAsync((() => { Console.WriteLine("Fichier reçu avec succès !"); }), metaFile.Length, token))
+                                {
+                                    await stm.WriteAsync(f, token);
+                                }
+                            }
+                            FilesFiniched.Add(new(metaFile.NameWithExtension, metaFile.Length, TransfertType.Recu, DateTime.Now));
+                            infoMetaArgsReceived.Remove(metaFile);
+                            File.Move(temp, direct);
                         }
                     }
-                    FilesFiniched.Add(new(infoMetaArgsReceived.NameWithExtension, infoMetaArgsReceived.Length, TransfertType.Recu, DateTime.Now));
-                    infoMetaArgsReceived.Remove(metaFile);
-                    File.Move(temp, direct);
+                    catch(Exception ex)
+                    {
+                        Debug.WriteLine("Erreur de reception : " + ex.Message);
+                    }
                 }
+            }
+            catch(Exception ex)
+            {
+                
+                Debug.WriteLine("Erreur de reception : " + ex.Message);
+                Stream?.Dispose();
+                ConnectionClosed?.Invoke();
             }
         },token);
     }

@@ -12,7 +12,6 @@ namespace WindowsWifiLibrary.Services
         private WiFiDirectAdvertisementPublisher? _publisher; 
         private WiFiDirectConnectionListener? _listener; 
         private DeviceWatcher? _deviceWatcher; 
-         
 
         private readonly List<WiFiDirectDevice> _connectedDevices = new(); 
         private readonly ConcurrentDictionary<string, WiFiDirectConnectionRequest>  _pendingInvitations = new();
@@ -24,10 +23,7 @@ namespace WindowsWifiLibrary.Services
 
         public WindowsWifiDirectService()
         {
-            if(!InitializeAsync(default).GetAwaiter().GetResult())
-            {
-                throw new Exception("service wifi indisponible");
-            }
+            _=InitializeAsync(default);
             CurrentStatus = WifiDirectStatus.Disconnected;
         }
 
@@ -57,6 +53,7 @@ namespace WindowsWifiLibrary.Services
         { 
             try 
             {
+                await Task.Delay(300);
                 token.ThrowIfCancellationRequested();
                 var deviceSelector = WiFiDirectDevice.GetDeviceSelector(); 
                 var devices = await DeviceInformation.FindAllAsync(deviceSelector); 
@@ -117,17 +114,23 @@ namespace WindowsWifiLibrary.Services
             CurrentStatus = WifiDirectStatus.Disconnected;
         }
 
-        public async Task<bool> DisconnectToPeerAsync(WifiDirectPeer peer,CancellationToken token)
+        public bool DisconnectToPeer(ref WifiDirectPeer? peer,CancellationToken token)
         {
             foreach (var device in _connectedDevices.ToList())
             {
-                if (token.IsCancellationRequested) return false;
-                if (device.DeviceId == peer.Id)
+                if (token.IsCancellationRequested)
+                {
+                     
+                    return false; 
+                }
+                if (device.DeviceId == peer?.Id)
                 {
                     device.Dispose();
+                    peer = null;
                     return true;
                 }
             }
+            peer = null;
             return false;
 
         }

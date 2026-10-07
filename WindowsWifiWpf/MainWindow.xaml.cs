@@ -74,17 +74,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow()
     {
         InitializeComponent();
-        _ = Task.Run(() =>
-        {
-            _wifiService = new();
-            _wifiService.StatusChanged += WifiService_StatusChanged;
-            _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
-            _wifiService.PeerUpdated += WifiService_PeerUpdated;
-            _wifiService.PeerRemoved += WifiService_PeerRemoved;
-            _wifiService.InvitationReceived += WifiService_InvitationReceived;
-            _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
-            _wifiService.ConnectionClosed += WifiService_ConnectionClosed;
-        });
+        
+        _wifiService = new();
+        _wifiService.StatusChanged += WifiService_StatusChanged;
+        _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
+        _wifiService.PeerUpdated += WifiService_PeerUpdated;
+        _wifiService.PeerRemoved += WifiService_PeerRemoved;
+        _wifiService.InvitationReceived += WifiService_InvitationReceived;
+        _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
+        _wifiService.ConnectionClosed += WifiService_ConnectionClosed;
+            
+        
         DataContext = this;
 
     }
@@ -162,8 +162,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _ctsTcp?.Cancel();
         ServerInstance?.Stop();
         ClientInstance?.Stop();
-        _ = _wifiService.DisconnectToPeerAsync(PeerConnecte);
-        PeerConnecte = null;
+        WifiDirectPeer? peerConnecte = null;
+        _wifiService.DisconnectToPeer(ref peerConnecte,default);
+        PeerConnecte = peerConnecte;
     }
     
     private async void SendButton_Click(object sender, RoutedEventArgs e)
