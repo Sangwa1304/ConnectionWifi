@@ -485,14 +485,14 @@
                                     HorizontalAlignment="Right"
                                     Command="{Binding ScanCommand}"
                                     Content="Recherche"
-                                    Visibility="{Binding StartB}"
+                                    Visibility="{Binding StartSubscribeButtonVisibily}"
                                     FontSize="12"
                                     Style="{StaticResource CaptivatingButtonStyle}" />
                                 <Button
                                     Grid.Column="1"
                                     Padding="6"
                                     Margin="2,0,0,0"
-                                    Visibility="{Binding StopB}"
+                                    Visibility="{Binding StopSubscribeButtonVisibil}"
                                     VerticalAlignment="Center"
                                     HorizontalAlignment="Right"
                                     Command="{Binding RetryCommand}"

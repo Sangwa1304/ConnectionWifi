@@ -14,16 +14,40 @@ namespace WindowsWifiLibrary.Services
         private DeviceWatcher? _deviceWatcher;
         private readonly List<WiFiDirectDevice> _connectedDevices = new(); 
         private readonly ConcurrentDictionary<string, WiFiDirectConnectionRequest>  _pendingInvitations = new();
+        private WifiDirectPublicherStatus _PublisherStatus = WifiDirectPublicherStatus.Closed;
+        private WifiDirectWatcherStatus _WatcherStatus = WifiDirectWatcherStatus.Closed;
 
-        public WifiDirectPublicherStatus PublisherStatus { get; private set; } = WifiDirectPublicherStatus.Closed;
-        public WifiDirectWatcherStatus WatcherStatus { get; private set; } = WifiDirectWatcherStatus.Closed;
+
+        public WifiDirectPublicherStatus PublisherStatus 
+        {
+            get => _PublisherStatus; 
+            private set
+            {
+                if(_PublisherStatus != value)
+                {
+                    _PublisherStatus = value;
+                    PublicherStatusChanged?.Invoke(this, new(_PublisherStatus));
+                }
+            }
+        }
+        public WifiDirectWatcherStatus WatcherStatus 
+        { 
+            get=>_WatcherStatus; 
+            private set
+            {
+                if (_WatcherStatus != value)
+                {
+                    _WatcherStatus = value;
+                    WatcherStatusChanged?.Invoke(this, new(_WatcherStatus));
+                }
+            }
+        }
 
         private WifiDirectStatus _DirectStatus  = WifiDirectStatus.Closed;
-
+        
         public WindowsWifiDirectService()
         {
             _=InitializeAsync(default);
-            CurrentStatus = WifiDirectStatus.Disconnected;
         }
 
         public WifiDirectStatus CurrentStatus
@@ -32,13 +56,17 @@ namespace WindowsWifiLibrary.Services
 
             private set
             {
-                
-                _DirectStatus = value;
-                StatusChanged?.Invoke(this, new(_DirectStatus));
+                if(_DirectStatus != value)
+                {
+                    _DirectStatus = value;
+                    StatusChanged?.Invoke(this, new(_DirectStatus));
+                }
                 
             }
         }
 
+        public event EventHandler<WifiDirectPublicherStatusEventArgs>? PublicherStatusChanged;
+        public event EventHandler<WifiDirectWatcherStatusEventArgs>? WatcherStatusChanged;
         public event EventHandler<WifiDirectStatusEventArgs>? StatusChanged; 
         public event EventHandler<WifiDirectPeerEventArgs>? PeerDiscovered; 
         public event EventHandler<WifiDirectPeerEventArgs>? PeerUpdated; 

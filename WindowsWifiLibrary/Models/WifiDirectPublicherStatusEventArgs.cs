@@ -1,0 +1,2 @@
+﻿namespace WindowsWifiLibrary.Models;
+public record WifiDirectPublicherStatusEventArgs(WifiDirectPublicherStatus Status);

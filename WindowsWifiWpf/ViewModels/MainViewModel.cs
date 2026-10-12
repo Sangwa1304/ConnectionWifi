@@ -99,8 +99,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     private void FileServerChange() => OnPropertyChanged(nameof(FilServer));
     public Visibility ConnectedVisibilityOn { get => GetConnecteVisibility() ? Visibility.Visible : Visibility.Collapsed; }
     public Visibility ConnectedVisibilityOff { get => !GetConnecteVisibility() ? Visibility.Visible : Visibility.Collapsed; }
-    public Visibility StopB { get => !GetStartVisibility() ? Visibility.Visible : Visibility.Collapsed; }
-    public Visibility StartB { get => GetStartVisibility() ? Visibility.Visible : Visibility.Collapsed; }
+    public Visibility StopSubscribeButtonVisibily { get => !GetStartVisibility() ? Visibility.Visible : Visibility.Collapsed; }
+    public Visibility StartSubscribeButtonVisibily { get => GetStartVisibility() ? Visibility.Visible : Visibility.Collapsed; }
 
     private bool GetConnecteVisibility()
     {
@@ -114,9 +114,9 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool GetStartVisibility()
     {
         if (_wifiService == null) return true;
-        return _wifiService.CurrentStatus switch
+        return _wifiService.WatcherStatus switch
         {
-            WifiDirectStatus.Closed => true,
+            WifiDirectWatcherStatus.Closed => true,
             _ => false,
         };
     }
@@ -283,12 +283,24 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         ServerClientInstance.CounterClientChange += ClientInstance_CounterChanged;
         ServerClientInstance.CounterServerChange += ServerInstance_CounterChanged;
         _wifiService.StatusChanged += WifiService_StatusChanged;
+        _wifiService.PublicherStatusChanged += _wifiService_PublicherStatusChanged;
+        _wifiService.WatcherStatusChanged += _wifiService_WatcherStatusChanged;
         _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
         _wifiService.PeerUpdated += WifiService_PeerUpdated;
         _wifiService.PeerRemoved += WifiService_PeerRemoved;
         _wifiService.InvitationReceived += WifiService_InvitationReceived;
         _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
         _wifiService.ConnectionClosed += WifiService_ConnectionClosed;
+    }
+
+    private void _wifiService_WatcherStatusChanged(object? sender, WifiDirectWatcherStatusEventArgs e)
+    {
+        OnPropertyChanged(nameof(StartSubscribeButtonVisibily));
+        OnPropertyChanged(nameof(StopSubscribeButtonVisibily));
+    }
+
+    private void _wifiService_PublicherStatusChanged(object? sender, WifiDirectPublicherStatusEventArgs e)
+    {
     }
 
     private void ServerInstance_CounterChanged()
@@ -324,7 +336,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _ctsWatcher?.Cancel();
         DiscoveredDevices.Clear();
         _ctsWatcher = new CancellationTokenSource();
-        _=_wifiService.StartPublisherSubscribingAsync(_ctsWatcher.Token);
+        _=_wifiService.StartSubscribingAsync(_ctsWatcher.Token);
     }
     private async Task ExecuteBrowseAsync()
     {
@@ -459,7 +471,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     private void OpenDownloadFolder() => Process.Start(new ProcessStartInfo { FileName = DownloadFolder, UseShellExecute = true });
     private void ClearTransferHistory() => RecentTransfers.Clear();
     private void ReloadPage() => _=InitializeAsync(true);
-    private void RetrySearch() { _wifiService.Stop(); StartDiscovery(); }
+    private void RetrySearch() { StartDiscovery(); }
     private void UpdateDropStatus() => DropStatusText = PendingFiles.Count == 0 ? "Aucun élément" : $"{PendingFiles.Count} prêt(s).";
     private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) 
         => 
@@ -469,8 +481,6 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(NoHardwardSuported));
             OnPropertyChanged(nameof(PageReloadNoVisible));
             OnPropertyChanged(nameof(PageReloadVisible));
-            OnPropertyChanged(nameof(StartB));
-            OnPropertyChanged(nameof(StopB));
             OnPropertyChanged(nameof(CurrentStateDisplayText));
             OnPropertyChanged(nameof(ConnectedVisibilityOff));
             OnPropertyChanged(nameof(ConnectedVisibilityOn));/*MessageText = $"Statut matériel : {e.Status}"*/; 
