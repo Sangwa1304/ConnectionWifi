@@ -5,14 +5,13 @@ using WindowsWifiLibrary.Interfaces;
 using WindowsWifiLibrary.Models;
 
 namespace WindowsWifiLibrary.Services 
-{ 
+{
     public sealed class WindowsWifiDirectService : IWifiDirectService 
     {
          
         private WiFiDirectAdvertisementPublisher? _publisher; 
-        private WiFiDirectConnectionListener? _listener; 
-        private DeviceWatcher? _deviceWatcher; 
-
+        private WiFiDirectConnectionListener? _listener;
+        private DeviceWatcher? _deviceWatcher;
         private readonly List<WiFiDirectDevice> _connectedDevices = new(); 
         private readonly ConcurrentDictionary<string, WiFiDirectConnectionRequest>  _pendingInvitations = new();
 
@@ -134,6 +133,23 @@ namespace WindowsWifiLibrary.Services
             return false;
 
         }
+        public bool DisconnectToPeer(WifiDirectPeer peer, CancellationToken token)
+        {
+            foreach (var device in _connectedDevices.ToList())
+            {
+                if (token.IsCancellationRequested)
+                {
+                    return false;
+                }
+                if (device.DeviceId == peer?.Id)
+                {
+                    device.Dispose();
+                    return true;
+                }
+            }
+            return false;
+
+        }
         public async Task<bool> ConnectToPeerAsync(WifiDirectPeer peer,CancellationToken token) 
         {
             try
@@ -226,7 +242,7 @@ namespace WindowsWifiLibrary.Services
             } 
             else
             {
-                DisconnectToPeerAsync(new(wfdDevice.DeviceId,""),default).Wait();
+                DisconnectToPeer(new(wfdDevice.DeviceId,""),default);
                 ReportError(message:"Connexion établie mais aucune adresse IP n'a pu être assignée.");
 
             } 
@@ -329,6 +345,18 @@ namespace WindowsWifiLibrary.Services
         {
             StopPublisher();
             StopWatcher();
+        }
+
+        public bool IsConnectToPeer(WifiDirectPeer target)
+        {
+            foreach(var peer in _connectedDevices)
+            {
+                if(peer.DeviceId == target.Id)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

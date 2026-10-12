@@ -1,6 +1,3 @@
-using LibraryMI.Interfaces;
-using TcpApiTransfert;
-using WindowsWifiLibrary.Core.Services;
 
 namespace WindowsWifiWpf.ViewModels;
 
@@ -10,4 +7,12 @@ public static class Init
     {
         return new FileTransferService();
     }
+}
+
+internal class FileTransferService : IFileTransferService
+{
+}
+
+public interface IFileTransferService
+{
 }

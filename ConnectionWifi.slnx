@@ -1,10 +1,5 @@
 <Solution>
-  <Folder Name="/Éléments de solution/">
-    <File Path=".gitignore" />
-    <File Path="FeaturesToAdded.txt" />
-    <File Path="OsValid.txt" />
-    <File Path="README.markdown" />
-  </Folder>
+  <Project Path="LibraryModels/LibraryMI.csproj" />
   <Project Path="ServiceTcpChared/ServiceTcpChared.csproj" Id="f2d1d2be-2bb1-41dd-bc04-d4d02c85864e" />
   <Project Path="WifiDirectTests/WifiDirectTests.csproj" Id="ca199694-b4bb-49e6-8feb-d451def2c0b6" />
   <Project Path="WindowsWifiLibrary/WindowsWifiLibrary.csproj" />

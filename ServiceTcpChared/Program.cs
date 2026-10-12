@@ -33,9 +33,11 @@ internal class Program
             };
 
         ServerInstance?.Stop();
-        ServerInstance = new(true, CounterServerChange);
+        ServerInstance = new(true);
+        ServerInstance?.CounterChange += CounterServerChange;
         ClientInstance?.Stop();
-        ClientInstance = new(IPAddress.Loopback.ToString(), true, CounterClientChange);
+        ClientInstance = new(IPAddress.Loopback.ToString(), true);
+        ClientInstance?.CounterChange += CounterClientChange;
         _ctsTcp?.Cancel();
         _ctsTcp = new();
         ServerInstance.FileChange += FileClientChange;
@@ -50,7 +52,7 @@ internal class Program
             _ = ServerInstance.StartConnection(_ctsTcp.Token);
         }
 
-        await ServerInstance.FilesToSend.AddAsync(files);
+        ServerInstance.Add([..files]);
         while (true) ;
         
     }

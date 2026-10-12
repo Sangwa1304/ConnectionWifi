@@ -31,6 +31,18 @@ public class AsyncCollection<T>
         
         NewWord?.Invoke(cts?.Token?? default);
     }
+    public async Task AddAsync(IEnumerable<T> items)
+    {
+
+        if (NoAdded) return;
+        Added?.Invoke();
+        _Collection.AddRange(items);
+        cts = new();
+        await Task.Delay(100);
+        if (cts?.IsCancellationRequested ?? false) return;
+
+        NewWord?.Invoke(cts?.Token ?? default);
+    }
     public async IAsyncEnumerable<T> GetAsyncCollection([EnumeratorCancellation] CancellationToken token)
     {
         while (!token.IsCancellationRequested)

@@ -26,7 +26,7 @@ public class TcpClientStreaming : StreamingData, ITcpStreaming
     public override event Action? StreamingCreated;
     public override event Action? ConnectionClosed;
 
-    public TcpClientStreaming(string address,bool ServerMode,Action counterChange):base(counterChange)
+    public TcpClientStreaming(string address,bool ServerMode):base()
     {
         Port = ServerMode ? Port2 : Port1;
         Address = IPAddress.Parse(address);

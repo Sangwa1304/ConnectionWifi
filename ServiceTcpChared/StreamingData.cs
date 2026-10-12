@@ -70,16 +70,15 @@ public class StreamingData
     private Task? SendTask;
     private Task? ReceveidTask;
     protected NetworkStream? Stream;
-    public readonly AsyncCollection<string[]> FilesToSend = new();
+    protected readonly AsyncCollection<string[]> FilesToSend = new();
     protected long buffer = 2048576; // 2 Mo
 
-    public StreamingData(Action counterChange)
+    public StreamingData()
     {
         if(!Directory.Exists(DownloadDirectory))
         {
             _= Directory.CreateDirectory(DownloadDirectory);
         }
-        CounterChange = counterChange;
     }
 
     public virtual event Action? StreamingCreated;
@@ -190,12 +189,12 @@ public class StreamingData
                     {
                         await SendResponseAsync(false, token);
                         await Task.Delay(2000);
+                        infoMetaArgsReceived.Clear();
                     }
                     else
                     {
                         await SendResponseAsync(true, token);
                         await Task.Delay(2000);
-
                     }
 
                     try

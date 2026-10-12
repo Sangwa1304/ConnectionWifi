@@ -16,7 +16,23 @@ using Newtonsoft.Json;
 
 namespace ServiceTcpChared;
 
-public class InfoMeta : IEquatable<InfoMeta?>
+public class InfoMetas(IEnumerable<InfoMeta> metas)
+{ 
+    public InfoMeta[] Metas { get; } = [..metas];
+    public long Length => Count();
+
+    private long Count()
+    {
+        long i = 0;
+        foreach(var r in Metas)
+        {
+            i += r?.Length?? 0;
+        }
+        return i;
+    }
+}
+
+    public class InfoMeta : IEquatable<InfoMeta?>
 {
     public bool Etat = false;
     public readonly string NameWithExtension;

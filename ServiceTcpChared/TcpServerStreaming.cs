@@ -25,7 +25,7 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
     public override event Action? StreamingCreated;
     public override event Action? ConnectionClosed;
 
-    public TcpServerStreaming(bool modeServer,Action counterChange) : base(counterChange)
+    public TcpServerStreaming(bool modeServer)
     {
         Port = modeServer ?  Port1: Port2;
         Address = IPAddress.Any;
@@ -53,5 +53,14 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
     public override void Stop()
     {
         Server?.Stop();
+    }
+
+    public void Add(List<string> items)
+    {
+        _=FilesToSend.AddAsync(items.ToArray());
+    }
+    public void Add(string item)
+    {
+        _ = FilesToSend.AddAsync([item]);
     }
 }

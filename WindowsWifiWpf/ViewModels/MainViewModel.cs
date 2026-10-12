@@ -1,45 +1,127 @@
+using LibraryMI.Models;
+using Microsoft.Win32;
+using ServiceTcpChared;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Data;
-using LibraryMI.Interfaces;
-using LibraryMI.Models;
-using Microsoft.Win32;
+using System.Windows.Threading;
 using WindowsWifiLibrary.Models;
 using WindowsWifiLibrary.Services;
 
 namespace WindowsWifiWpf.ViewModels;
 public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 {
-    private readonly WindowsWifiDirectService _wifiService;
-    private readonly IFileTransferService _transferService;
-
-    private TransferWorkflowState _currentState = TransferWorkflowState.Idle;
-    public TransferWorkflowState CurrentState
+    public class ServerClient
     {
-        get => _currentState;
-        set
+        public TcpClientStreaming? ClientInstance { get; private set; }
+        public TcpServerStreaming? ServerInstance { get; private set; }
+        public event Func<InfoMetas,Task<bool>>?  TransfertRequest;
+        public event Action? CounterServerChange;
+        public event Action? CounterClientChange;
+        public event Action? FileServerChange;
+        public event Action? FileClientChange;
+
+        internal void Stop()
         {
-            _currentState = value;
-            OnPropertyChanged(nameof(CurrentState));
-            OnPropertyChanged(nameof(CurrentStateDisplayText));
+            ServerInstance?.Stop();
+            ClientInstance?.Stop();
+        }
+
+        private bool ServerClient_FilesComming(IEnumerable<InfoMeta> arg)
+        {
+            return TransfertRequest?.Invoke(new(arg)).GetAwaiter().GetResult()??false;
+        }
+
+        private void ServerClient_CounterChange()
+        {
+            CounterServerChange?.Invoke();
+        }
+        private void Client_CounterChange()
+        {
+            CounterClientChange?.Invoke();
+        }
+
+        private void ServerClient_FileChange()
+        {
+            FileClientChange?.Invoke();
+        }
+
+        private void ServerInstance_FileChange()
+        {
+            FileServerChange?.Invoke();
+        }
+
+        internal async Task SendFilesAsync(IEnumerable<FileI> pendingFiles, CancellationToken token)
+        {
+            List<string> f = [.. from e in pendingFiles select e.PathFile];
+
+            ServerInstance?.Add(f);
+        }
+
+        internal async Task Start(WifiDirectConnectionEventArgs e, CancellationToken token)
+        {
+            Stop();
+            ServerInstance = new(e.ServerMode);
+            ClientInstance = new(e.RemoteIpAddress, e.ServerMode);
+
+            ServerInstance?.FileChange += ServerInstance_FileChange;
+            ClientInstance?.FileChange += ServerClient_FileChange;
+            ServerInstance?.CounterChange += ServerClient_CounterChange;
+            ClientInstance?.CounterChange += Client_CounterChange;
+            ClientInstance?.FilesComming += ServerClient_FilesComming;
+            ServerInstance?.FilesComming += ServerClient_FilesComming;
+            
+            if (e.ServerMode)
+            {
+                _ = ServerInstance?.StartConnection(token);
+                _ = ClientInstance?.StartConnection(token);
+            }
+            else
+            {
+                _ = ClientInstance?.StartConnection(token);
+                _ = ServerInstance?.StartConnection(token);
+            }
         }
     }
+    private readonly WindowsWifiDirectService _wifiService;
+    #region : Server and Client 
+    private readonly ServerClient ServerClientInstance;
 
-    public string CurrentStateDisplayText => CurrentState switch
+    public string FileClient { get => ServerClientInstance.ClientInstance?.FileReceivedOrSend ?? ""; }
+    public string FilServer { get => ServerClientInstance.ServerInstance?.FileReceivedOrSend ?? ""; }
+    public float CounterServer { get => ServerClientInstance.ServerInstance?.Percentage ?? 0; }
+    public float CounterClient { get => ServerClientInstance.ClientInstance?.Percentage ?? 0; }
+    private void CounterClientChange() => OnPropertyChanged(nameof(CounterClient));
+    private void CounterServerChange() => OnPropertyChanged(nameof(CounterServer));
+    private void FileClientChange() => OnPropertyChanged(nameof(FileClient));
+    private void FileServerChange() => OnPropertyChanged(nameof(FilServer));
+    public Visibility ConnectedVisibilityOn { get => GetConnecteVisibility() ? Visibility.Visible : Visibility.Collapsed; }
+    public Visibility ConnectedVisibilityOff { get => !GetConnecteVisibility() ? Visibility.Visible : Visibility.Collapsed; }
+    public Visibility StopB { get => !GetStartVisibility() ? Visibility.Visible : Visibility.Collapsed; }
+    public Visibility StartB { get => GetStartVisibility() ? Visibility.Visible : Visibility.Collapsed; }
+
+    private bool GetConnecteVisibility()
     {
-        TransferWorkflowState.DiscoveringPeers => "Recherche des appareils...",
-        TransferWorkflowState.PeerSelected => "Appareil sélectionné",
-        TransferWorkflowState.PairingRequested => "Appairage en cours...",
-        TransferWorkflowState.TransferNegotiation => "Négociation du transfert...",
-        TransferWorkflowState.Sending => "Envoi en cours...",
-        TransferWorkflowState.Receiving => "Réception en cours...",
-        TransferWorkflowState.Completed => "Terminé",
-        TransferWorkflowState.Cancelled => "Annulé",
-        TransferWorkflowState.Error => "Erreur",
-        _ => "Prêt"
-    };
+
+        return _wifiService?.CurrentStatus switch
+        {
+            WifiDirectStatus.Connected => true,
+            _ => false,
+        };
+    }
+    private bool GetStartVisibility()
+    {
+        if (_wifiService == null) return true;
+        return _wifiService.CurrentStatus switch
+        {
+            WifiDirectStatus.Closed => true,
+            _ => false,
+        };
+    }
+    
+    #endregion
 
     private string _selectedPeerName = "Aucun appareil sélectionné";
     private string _dropStatusText = "Aucun élément sélectionné";
@@ -47,7 +129,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     private string _progressText = "En attente...";
     private string _downloadFolder = GetDefaultDownloadFolder();
     private double _transferProgress;
-    private TransferSessionMetadata? _incomingTransferSession;
+    private InfoMetas? _incomingTransferSession;
     private bool _isFileOverDropZone;
 
     public string SelectedPeerName { get => _selectedPeerName; set { _selectedPeerName = value; OnPropertyChanged(nameof(SelectedPeerName)); } }
@@ -78,12 +160,32 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<FileI> PendingFiles { get; } = [];
     public ObservableCollection<TransferHistoryEntry> RecentTransfers { get; } = [];
     
-    public WifiDirectPeer? PeerWaiting { get; private set; }
+    public WifiDirectPeer? PeerConnecte { get; private set; }
     public bool HasRecentTransfers => RecentTransfers.Count > 0;
     public bool HasPendingFiles => PendingFiles.Count > 0;
     public bool NoPendingFiles => !HasPendingFiles;
+    public bool _NoHardwardSuported = false;
+    public bool NoHardwardSuported 
+    { 
+        get => _NoHardwardSuported; 
+        private set
+        {
+            _NoHardwardSuported = value;
+            OnPropertyChanged(nameof(NoHardwardSuported));
+            OnPropertyChanged(nameof(PageReloadNoVisible));
+            OnPropertyChanged(nameof(PageReloadVisible));
+        }
+    }
 
-    public TransferSessionMetadata? IncomingTransferSession
+    public Visibility PageReloadVisible
+    {
+        get => NoHardwardSuported ? Visibility.Visible : Visibility.Collapsed;
+    }
+    public Visibility PageReloadNoVisible
+    {
+        get => NoHardwardSuported ? Visibility.Collapsed : Visibility.Visible;
+    }
+    public InfoMetas? IncomingTransferSession
     {
         get => _incomingTransferSession;
         set
@@ -92,37 +194,32 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(IncomingTransferSession));
             OnPropertyChanged(nameof(IsTransferRequestVisible));
             OnPropertyChanged(nameof(TransferRequestSummary));
-            OnPropertyChanged(nameof(CurrentTransferStatusText));
         }
     }
 
     public bool IsTransferRequestVisible => IncomingTransferSession != null;
     public string TransferRequestSummary => IncomingTransferSession == null
         ? string.Empty
-        : $"{IncomingTransferSession.SenderName} souhaite envoyer {IncomingTransferSession.TotalFiles} élément(s) ({FormatSize(IncomingTransferSession.TotalSize)}).";
+        : $"{PeerConnecte?.Name} souhaite envoyer {IncomingTransferSession.Length} élément(s) ({FormatSize(IncomingTransferSession.Length)}).";
 
-    public string CurrentTransferStatusText => CurrentState switch
-    {
-        TransferWorkflowState.Sending => "Envoi en cours",
-        TransferWorkflowState.Receiving => "Réception en cours",
-        TransferWorkflowState.TransferNegotiation => "Négociation du transfert",
-        TransferWorkflowState.Completed => "Transfert terminé",
-        TransferWorkflowState.Cancelled => "Transfert annulé",
-        TransferWorkflowState.Error => "Erreur de transfert",
-        _ => "Aucun transfert actif"
-    };
 
     private CancellationTokenSource? _ctsWatcher;
     private CancellationTokenSource? _ctsTransfert;
-    private CancellationTokenSource? _ctsConction;
+
+    public bool Accept { get; private set; }
+
+    private CancellationTokenSource? _ctsConnection;
 
     public ICommand BrowseCommand { get; }
     public ICommand ChangeFolderCommand { get; }
     public ICommand RetryCommand { get; }
     public ICommand ReloadCommand { get; }
     public ICommand ScanCommand { get; }
+    public ICommand SendCommand { get; }
+    public ICommand DisconnectCommand { get; }
     public ICommand DeleteAllCommand { get; }
     public ICommand DeleteItemCommand { get; }
+    public ICommand ConnectCommand { get; }
     public ICommand ConnectAndSendCommand { get; }
     public ICommand AcceptTransferCommand { get; }
     public ICommand RejectTransferCommand { get; }
@@ -134,8 +231,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public MainViewModel()
     {
         _wifiService = new WindowsWifiDirectService();
-        _transferService = Init.GetService();
-
+        ServerClientInstance = new();
+        ServerClientInstance.TransfertRequest += ServerClientInstance_TransfertRequest;
         // Synchronisation inter-threads sécurisée pour les collections de l'interface graphique
         BindingOperations.EnableCollectionSynchronization(DiscoveredDevices, new object());
         BindingOperations.EnableCollectionSynchronization(PendingFiles, new object());
@@ -149,9 +246,12 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         DeleteAllCommand = new RelayCommand(_ => DeleteAll());
         DeleteItemCommand = new RelayCommand(param => DeleteItem(param as FileI), param => param is FileI);
         ConnectAndSendCommand = new RelayCommand(async param => await ConnectAndSendAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
+        ConnectCommand = new RelayCommand(async param => await ConnectAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
+        SendCommand = new RelayCommand(async param => await SendAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
+        DisconnectCommand = new RelayCommand(async param => await DisconnectAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
         AcceptTransferCommand = new RelayCommand(async _ => await AcceptIncomingTransferAsync(), _ => IncomingTransferSession != null);
         RejectTransferCommand = new RelayCommand(_ => RejectIncomingTransfer(), _ => IncomingTransferSession != null);
-        CancelTransferCommand = new RelayCommand(_ => CancelActiveTransfer(), _ => CurrentState == TransferWorkflowState.Sending || CurrentState == TransferWorkflowState.Receiving || CurrentState == TransferWorkflowState.TransferNegotiation);
+        CancelTransferCommand = new RelayCommand(_ => CancelActiveTransfert());
         OpenDownloadFolderCommand = new RelayCommand(_ => OpenDownloadFolder(), _ => !string.IsNullOrWhiteSpace(DownloadFolder));
         ClearTransferHistoryCommand = new RelayCommand(_ => ClearTransferHistory(), _ => RecentTransfers.Count > 0);
 
@@ -160,12 +260,36 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
         WireEvents();
         _ = InitializeAsync();
+    }
 
-        SetState(TransferWorkflowState.Idle, "Prêt à démarrer un transfert.");
+    private async Task<bool> ServerClientInstance_TransfertRequest(InfoMetas arg)
+    {
+        Accept = false;
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            IncomingTransferSession = arg;
+            ProgressText = $"Réception de {arg.Metas.Count()} élément(s)";
+        });
+        bool response = false;
+        while(!Accept && IncomingTransferSession != null)
+        {
+            await Task.Delay(3000);
+        }
+        if(Accept)response= true;
+        Accept = false;
+        return response;
+    }
+
+    private async Task DisconnectAsync(WifiDirectPeer? wifiDirectPeer)
+    {
+        _wifiService.DisconnectToPeer( ref wifiDirectPeer,default);
+        PeerConnecte = wifiDirectPeer;
     }
 
     private void WireEvents()
     {
+        ServerClientInstance.CounterClientChange += ClientInstance_CounterChanged;
+        ServerClientInstance.CounterServerChange += ServerInstance_CounterChanged;
         _wifiService.StatusChanged += WifiService_StatusChanged;
         _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
         _wifiService.PeerUpdated += WifiService_PeerUpdated;
@@ -173,52 +297,45 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _wifiService.InvitationReceived += WifiService_InvitationReceived;
         _wifiService.ConnectionEstablished += WifiService_ConnectionEstablished;
         _wifiService.ConnectionClosed += WifiService_ConnectionClosed;
-        _transferService.IncomingTransferRequested += OnIncomingTransferRequested;
+    }
+
+    private void ServerInstance_CounterChanged()
+    {
+        CounterServerChange();
+    }
+
+    private void ClientInstance_CounterChanged()
+    {
+        CounterClientChange();
     }
 
     private async Task InitializeAsync()
     {
         try
         {
-            bool initialized = await _wifiService.InitializeAsync();
-            if (!initialized || !_wifiService.IsHardwareSupported)
+            bool initialized = await _wifiService.InitializeAsync(default);
+            if (!initialized)
             {
                 _wifiService.Stop();
-                SetState(TransferWorkflowState.Error, "Matériel Wi-Fi Direct non supporté.");
+                NoHardwardSuported = true;
                 return;
             }
-            _ = _wifiService.StartPublishingAsync();
-            SetState(TransferWorkflowState.Idle, "Service Wi-Fi Direct prêt.");
+            _ = _wifiService.StartPublishingAsync(default);
+            NoHardwardSuported = false;
         }
         catch (Exception ex)
         {
-            SetState(TransferWorkflowState.Error, "Initialisation impossible : " + ex.Message);
+            NoHardwardSuported = true;
         }
     }
 
     private void StartDiscovery()
     {
-        SetState(TransferWorkflowState.DiscoveringPeers, "Recherche des appareils disponibles...");
         _ctsWatcher?.Cancel();
         DiscoveredDevices.Clear();
         _ctsWatcher = new CancellationTokenSource();
         _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
     }
-    private void SetStateDevice( WifiDirectPeer? state, string? statusMessage = null)
-    {
-        
-    }
-    
-    private void SetState(TransferWorkflowState state, string? statusMessage = null)
-    {
-        CurrentState = state;
-        if (!string.IsNullOrWhiteSpace(statusMessage)) MessageText = statusMessage;
-        Application.Current.Dispatcher.Invoke(() =>
-        {
-            ((RelayCommand)CancelTransferCommand).RaiseCanExecuteChanged();
-        });
-    }
-
     private async Task ExecuteBrowseAsync()
     {
         OpenFileDialog dialog = new() { CheckFileExists = true, Multiselect = true, Title = "Sélectionner des éléments" };
@@ -250,48 +367,27 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
                     added++;
                 }
             }
-            if (added > 0) SetState(TransferWorkflowState.PeerSelected, $"{PendingFiles.Count} élément(s) prêt(s). Sélectionnez un appareil.");
         });
     }
 
     private async Task ConnectAndSendAsync(WifiDirectPeer? target)
     {
-        if (target == null) return;
-        if (PendingFiles.Count == 0)
-        {
-            MessageBox.Show("Veuillez d'abord glisser-déposer des éléments à envoyer.", "Liste vide", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-        try
-        {
-            SelectedPeerName = target.Name;
-            PeerWaiting = target;
-            SetState(TransferWorkflowState.PairingRequested, $"Connexion et envoi vers {target.Name}...");
-            _ctsConction?.Cancel();
-            _ctsConction = new CancellationTokenSource();
-            await _wifiService.ConnectToPeerAsync(target, _ctsConction.Token);
-        }
-        catch (Exception ex)
-        {
-            SetState(TransferWorkflowState.Error, "Erreur de liaison : " + ex.Message);
-        }
+        await ConnectAsync(target);
+        await SendAsync(target);
     }
     private async Task ConnectAsync(WifiDirectPeer? target)
     {
         if (target == null) return;
         try
         {   
-            _ctsConction?.Cancel();
+            _ctsConnection?.Cancel();
             SelectedPeerName = target.Name;
-            PeerWaiting = target;
-            SetState(TransferWorkflowState.PairingRequested, $"tentative de connexion à {target.Name}...");
-            _ctsConction = new CancellationTokenSource();
-            await _wifiService.ConnectToPeerAsync(target, _ctsConction.Token);
+            PeerConnecte = target;
+            _ctsConnection = new CancellationTokenSource();
+            await _wifiService.ConnectToPeerAsync(target, _ctsConnection.Token);
         }
         catch (Exception ex)
-        {
-            SetState(TransferWorkflowState.Error, "Erreur de liaison : " + ex.Message);
-        }
+        {}
     }
     private async Task SendAsync(WifiDirectPeer? target)
     {
@@ -303,100 +399,51 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         }
         else if(_wifiService.IsConnectToPeer(target))
         {
-            //start send to target
+            if (_ctsTransfert == null || !_ctsTransfert.IsCancellationRequested) _ctsTransfert = new();
+            _=ServerClientInstance.SendFilesAsync(PendingFiles,_ctsTransfert.Token);
+        }
+        else
+        {
+            MessageBox.Show("Veuillez d'abord vous connecter.", "Appareil non connecter", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
     private void WifiService_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e)
     {
         Application.Current.Dispatcher.InvokeAsync(async () =>
         {
-            SetState(TransferWorkflowState.TransferNegotiation, "⚡ Connexion sécurisée établie. Initialisation du canal...");
-            
-            var localIp = IPAddress.Any.ToString();
-            const int port = 5010;
             _ctsTransfert?.Cancel();
             await Task.Delay(100);
             _ctsTransfert = new CancellationTokenSource();
             try
             {
-                await _transferService.StartListeningAsync(localIp, port, _ctsTransfert.Token);
+                await ServerClientInstance.Start(e,_ctsTransfert.Token);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                SetState(TransferWorkflowState.Error, $"Impossible d'ouvrir le canal de transfert sur {localIp}:{port} : {ex.Message}");
                 return;
             }
 
-            if (PendingFiles.Count > 0 && PeerWaiting != null)
-            {
-                SetState(TransferWorkflowState.Sending, "Envoi du catalogue de métadonnées...");
-                var metadata = await _transferService.PrepareMetadataAsync(FileI.AsEnumerable(PendingFiles), localIp, port);
-                
-                PeerDevice device = new() 
-                {
-                    Name = PeerWaiting.Name, 
-                    Id = PeerWaiting.Id,
-                    Port = port,
-                    IpAddress = e.RemoteIpAddress
-                };
-                
-                bool success = await _transferService.RequestPairingAsync(device, metadata, _ctsTransfert.Token);
-                
-                if (success)
-                {
-                    AppendTransferHistory(PeerWaiting.Name, "Envoi 🚀", "Réussi", "P2P Link", metadata.TotalSize);
-                    ResetWorkflowAfterTimeout("🚀 Tous les fichiers ont été transmis avec succès !");
-                }
-                else
-                {
-                    AppendTransferHistory(PeerWaiting.Name, "Envoi 🚀", "Refusé", "P2P Link", metadata.TotalSize);
-                    SetState(TransferWorkflowState.Cancelled, "L'appareil distant a refusé la transaction.");
-                    ResetWorkflowAfterTimeout("Transfert interrompu.");
-                }
-            }
         });
     }
 
     private async Task AcceptIncomingTransferAsync()
     {
         if (IncomingTransferSession == null) return;
-        var session = IncomingTransferSession;
-        try
-        {
-            _ctsTransfert = new CancellationTokenSource();
-            var decision = await _transferService.AcceptTransferAsync(session, DownloadFolder, _ctsTransfert.Token);
-            
-            var progress = new Progress<FileTransferProgress>(p =>
-            {
-                TransferProgress = p.Percentage;
-                ProgressText = $"{p.CurrentFileName} ({p.Percentage:0.0}%)";
-                SetState(TransferWorkflowState.Receiving);
-            });
-
-            await _transferService.DownloadSessionAsync(session, decision.DestinationFolder!, progress, _ctsTransfert.Token);
-            AppendTransferHistory(session.SenderName ?? "Distant", "Réception 📥", "Terminé", decision.DestinationFolder!, session.TotalSize);
-            ResetWorkflowAfterTimeout("Réception complétée !");
-        }
-        catch (Exception ex)
-        {
-            AppendTransferHistory(session.SenderName ?? "Distant", "Réception 📥", "Échec", DownloadFolder, session.TotalSize);
-            SetState(TransferWorkflowState.Error, "Erreur : " + ex.Message);
-        }
+        Accept = true;
+        AppendTransferHistory(PeerConnecte?.Name ?? "Distant", "Réception 📥", "debuté", DownloadFolder, IncomingTransferSession.Length);
     }
-
+    
     private void RejectIncomingTransfer()
     {
         if (IncomingTransferSession == null) return;
-        _ = _transferService.CancelSessionAsync(IncomingTransferSession.SessionId, CancellationToken.None);
-        AppendTransferHistory(IncomingTransferSession.SenderName ?? "Distant", "Réception 📥", "Refusé", DownloadFolder, IncomingTransferSession.TotalSize);
-        SetState(TransferWorkflowState.Cancelled, "Transfert refusé.");
+
+        AppendTransferHistory(PeerConnecte?.Name?? "Distant", "Réception 📥", "Refusé", DownloadFolder, IncomingTransferSession.Length);
         ClearTransferRequest();
     }
 
-    private void CancelActiveTransfer()
+    private void CancelActiveTransfert()
     {
         _ctsTransfert?.Cancel();
-        SetState(TransferWorkflowState.Cancelled, "Annulé par l'utilisateur.");
         ClearTransferRequest();
     }
 
@@ -412,17 +459,16 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
                 TransferProgress = 0;
                 ProgressText = "En attente...";
                 IncomingTransferSession = null;
-                SetState(TransferWorkflowState.Idle, endMessage);
             });
         });
     }
 
     private void ClearTransferRequest() => IncomingTransferSession = null;
-    private void DeleteAll() { PendingFiles.Clear(); SetState(TransferWorkflowState.Idle, "Liste vidée."); }
-    private void DeleteItem(FileI? file) { if (file != null) PendingFiles.Remove(file); if (PendingFiles.Count > 0) SetState(TransferWorkflowState.PeerSelected, $"{PendingFiles.Count} élément(s) prêt(s). Sélectionnez un appareil.");}
+    private void DeleteAll() { PendingFiles.Clear(); }
+    private void DeleteItem(FileI? file) { if (file != null) PendingFiles.Remove(file);}
     private void OpenDownloadFolder() => Process.Start(new ProcessStartInfo { FileName = DownloadFolder, UseShellExecute = true });
     private void ClearTransferHistory() => RecentTransfers.Clear();
-    private void Reload() => StartDiscovery();
+    private void Reload() => _=InitializeAsync();
     private void RetryPage() { _wifiService.Stop(); _ = InitializeAsync(); }
     private void UpdateDropStatus() => DropStatusText = PendingFiles.Count == 0 ? "Aucun élément" : $"{PendingFiles.Count} prêt(s).";
     private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) => Application.Current.Dispatcher.Invoke(() => { /*MessageText = $"Statut matériel : {e.Status}"*/; });
@@ -457,18 +503,12 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
-    private void WifiService_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e){SetStateDevice(e.Peer);}
-    
-    private void OnIncomingTransferRequested(object? sender, TransferSessionMetadata m)
+    private void WifiService_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e)
     {
-        Application.Current.Dispatcher.Invoke(() =>
-        {
-            IncomingTransferSession = m;
-            SetState(TransferWorkflowState.TransferNegotiation, $"Demande de {m.SenderName}.");
-            ProgressText = $"Réception de {m.TotalFiles} élément(s)";
-        });
-    }
 
+        ServerClientInstance.Stop();
+    }
+    
     private void AppendTransferHistory(string user, string type, string status, string path, long size)
     {
         Application.Current.Dispatcher.Invoke(() =>
@@ -477,7 +517,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         });
     }
 
-    private static string GetDefaultDownloadFolder() => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "Wi-Fi P2P");
+    private static string GetDefaultDownloadFolder() => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "ShareBoost");
 
     private static string FormatSize(long size)
     {
@@ -493,7 +533,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         _ctsWatcher?.Cancel();
         _ctsTransfert?.Cancel();
-        _ctsConction?.Cancel();
+        _ctsConnection?.Cancel();
         _wifiService.StatusChanged -= WifiService_StatusChanged;
         _wifiService.PeerDiscovered -= WifiService_PeerDiscovered;
         _wifiService.PeerUpdated -= WifiService_PeerUpdated;
@@ -501,13 +541,12 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _wifiService.InvitationReceived -= WifiService_InvitationReceived;
         _wifiService.ConnectionEstablished -= WifiService_ConnectionEstablished;
         _wifiService.ConnectionClosed -= WifiService_ConnectionClosed;
-        _transferService.IncomingTransferRequested -= OnIncomingTransferRequested;
-        _ = _transferService.StopListeningAsync();
-        _transferService.Dispose();
+
+        ServerClientInstance.Stop();
         _wifiService.Stop();
         _ctsWatcher?.Dispose();
         _ctsTransfert?.Dispose();
-        _ctsConction?.Dispose();
+        _ctsConnection?.Dispose();
     }
 
     private class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand
