@@ -136,7 +136,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public string DropStatusText { get => _dropStatusText; set { _dropStatusText = value; OnPropertyChanged(nameof(DropStatusText)); } }
     public string MessageText { get => _messageText; set { _messageText = value; OnPropertyChanged(nameof(MessageText)); } }
     public string ProgressText { get => _progressText; set { _progressText = value; OnPropertyChanged(nameof(ProgressText)); } }
-    
+    public string CurrentStateDisplayText { get => _wifiService.CurrentStatus.ToString(); }
     public string DownloadFolder
     {
         get => _downloadFolder;
@@ -164,17 +164,9 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool HasRecentTransfers => RecentTransfers.Count > 0;
     public bool HasPendingFiles => PendingFiles.Count > 0;
     public bool NoPendingFiles => !HasPendingFiles;
-    public bool _NoHardwardSuported = false;
     public bool NoHardwardSuported 
     { 
-        get => _NoHardwardSuported; 
-        private set
-        {
-            _NoHardwardSuported = value;
-            OnPropertyChanged(nameof(NoHardwardSuported));
-            OnPropertyChanged(nameof(PageReloadNoVisible));
-            OnPropertyChanged(nameof(PageReloadVisible));
-        }
+        get => _wifiService.CurrentStatus == WifiDirectStatus.NoArdwareSupported;
     }
 
     public Visibility PageReloadVisible
@@ -309,24 +301,22 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         CounterClientChange();
     }
 
-    private async Task InitializeAsync()
+    private async Task InitializeAsync(bool reload = false)
     {
-        try
+
+
+        _ctsWatcher ??= new();
+        if (NoHardwardSuported)
         {
-            bool initialized = await _wifiService.InitializeAsync(default);
-            if (!initialized)
+            if(reload)
             {
-                _wifiService.Stop();
-                NoHardwardSuported = true;
-                return;
+                await _wifiService.InitializeAsync(_ctsWatcher.Token);
+                await InitializeAsync();
             }
-            _ = _wifiService.StartPublishingAsync(default);
-            NoHardwardSuported = false;
+            return;
         }
-        catch (Exception ex)
-        {
-            NoHardwardSuported = true;
-        }
+        _ = _wifiService.StartPublisherSubscribingAsync(_ctsWatcher.Token);
+        
     }
 
     private void StartDiscovery()
@@ -334,7 +324,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _ctsWatcher?.Cancel();
         DiscoveredDevices.Clear();
         _ctsWatcher = new CancellationTokenSource();
-        _wifiService.StartSubscribingAsync(_ctsWatcher.Token);
+        _=_wifiService.StartPublisherSubscribingAsync(_ctsWatcher.Token);
     }
     private async Task ExecuteBrowseAsync()
     {
@@ -468,10 +458,23 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     private void DeleteItem(FileI? file) { if (file != null) PendingFiles.Remove(file);}
     private void OpenDownloadFolder() => Process.Start(new ProcessStartInfo { FileName = DownloadFolder, UseShellExecute = true });
     private void ClearTransferHistory() => RecentTransfers.Clear();
-    private void ReloadPage() => _=InitializeAsync();
+    private void ReloadPage() => _=InitializeAsync(true);
     private void RetrySearch() { _wifiService.Stop(); StartDiscovery(); }
     private void UpdateDropStatus() => DropStatusText = PendingFiles.Count == 0 ? "Aucun élément" : $"{PendingFiles.Count} prêt(s).";
-    private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) => Application.Current.Dispatcher.Invoke(() => { /*MessageText = $"Statut matériel : {e.Status}"*/; });
+    private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) 
+        => 
+        Application.Current.Dispatcher.Invoke(() => 
+        {
+
+            OnPropertyChanged(nameof(NoHardwardSuported));
+            OnPropertyChanged(nameof(PageReloadNoVisible));
+            OnPropertyChanged(nameof(PageReloadVisible));
+            OnPropertyChanged(nameof(StartB));
+            OnPropertyChanged(nameof(StopB));
+            OnPropertyChanged(nameof(CurrentStateDisplayText));
+            OnPropertyChanged(nameof(ConnectedVisibilityOff));
+            OnPropertyChanged(nameof(ConnectedVisibilityOn));/*MessageText = $"Statut matériel : {e.Status}"*/; 
+        });
     private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) => Application.Current.Dispatcher.Invoke(() => { if (!DiscoveredDevices.Contains(e.Peer)) DiscoveredDevices.Add(e.Peer); });
     
     private void WifiService_PeerUpdated(object? sender, WifiDirectPeerEventArgs e) 

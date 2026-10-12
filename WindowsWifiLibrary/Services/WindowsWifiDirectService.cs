@@ -55,59 +55,54 @@ namespace WindowsWifiLibrary.Services
                 await Task.Delay(300);
                 token.ThrowIfCancellationRequested();
                 var deviceSelector = WiFiDirectDevice.GetDeviceSelector(); 
-                var devices = await DeviceInformation.FindAllAsync(deviceSelector); 
-                
-                CurrentStatus= WifiDirectStatus.Disconnected;
+                var devices = await DeviceInformation.FindAllAsync(deviceSelector);
+
+                CurrentStatus = devices != null ? WifiDirectStatus.Disconnected : WifiDirectStatus.NoArdwareSupported;
                 return devices != null;
                 
             } 
             catch (Exception ex) 
             {
+                CurrentStatus = WifiDirectStatus.NoArdwareSupported;
                 ReportError($"Erreur d'initialisation : {ex.Message}",ex);
                 return false; 
             } 
         }
  
-        public Task StartPublishingAsync(CancellationToken token) 
+        public async Task StartPublishingAsync(CancellationToken token) 
         { 
-            return Task.Run(async () => 
-            { 
-                StopPublisher(); 
+             StopPublisher(); 
  
-                _publisher = new WiFiDirectAdvertisementPublisher(); 
-                _publisher.Advertisement.ListenStateDiscoverability = WiFiDirectAdvertisementListenStateDiscoverability.Normal; 
-                _publisher.Advertisement.IsAutonomousGroupOwnerEnabled = true; 
+            _publisher = new WiFiDirectAdvertisementPublisher(); 
+            _publisher.Advertisement.ListenStateDiscoverability = WiFiDirectAdvertisementListenStateDiscoverability.Normal; 
+            _publisher.Advertisement.IsAutonomousGroupOwnerEnabled = true; 
  
-                _listener = new WiFiDirectConnectionListener(); 
-                _listener.ConnectionRequested += OnConnectionRequested;
-                await Task.Delay(1000, token);
-                _publisher.Start(); 
-                PublisherStatus = WifiDirectPublicherStatus.Started;
-            },token); 
+            _listener = new WiFiDirectConnectionListener(); 
+            _listener.ConnectionRequested += OnConnectionRequested;
+            await Task.Delay(1000, token);
+            _publisher.Start();
+            PublisherStatus = WifiDirectPublicherStatus.Started;
         } 
  
-        public Task StartSubscribingAsync(CancellationToken token) 
-        { 
-            return Task.Run(async () => 
-            { 
-                StopWatcher(); 
+        public async Task StartSubscribingAsync(CancellationToken token) 
+        {
+            StopWatcher(); 
  
-                string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint); 
-                _deviceWatcher =DeviceInformation.CreateWatcher(deviceSelector);
+            string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint); 
+            _deviceWatcher =DeviceInformation.CreateWatcher(deviceSelector);
                 
-                _deviceWatcher.Added += OnDeviceAdded;
-                _deviceWatcher.Updated += OnDeviceUpdated; 
-                _deviceWatcher.Removed += OnDeviceRemoved;
-                await Task.Delay(1000, token);
-                _deviceWatcher.Start(); 
-                WatcherStatus= WifiDirectWatcherStatus.Started; 
-            },token); 
+            _deviceWatcher.Added += OnDeviceAdded;
+            _deviceWatcher.Updated += OnDeviceUpdated; 
+            _deviceWatcher.Removed += OnDeviceRemoved;
+            await Task.Delay(1000, token);
+            _deviceWatcher.Start(); 
+            WatcherStatus= WifiDirectWatcherStatus.Started; 
         } 
  
         public async Task StartPublisherSubscribingAsync(CancellationToken token) 
         {
             if (token.IsCancellationRequested) return;
-            await StartPublishingAsync(token); 
+            _=StartPublishingAsync(token); 
             await StartSubscribingAsync(token);
             if (token.IsCancellationRequested) Stop();
             CurrentStatus = WifiDirectStatus.Disconnected;
@@ -257,7 +252,7 @@ namespace WindowsWifiLibrary.Services
                 sender.Dispose(); 
  
                 ConnectionClosed?.Invoke(this,new(new(sender.DeviceId,"Appareil deconnecté"))); 
-                if(_pendingInvitations.Count == 0)
+                if(_connectedDevices.Count == 0)
                 {
                     CurrentStatus = WifiDirectStatus.Disconnected; 
                 }

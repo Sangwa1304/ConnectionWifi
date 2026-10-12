@@ -6,7 +6,8 @@ public enum WifiDirectStatus
     Disconnected,
     Connected,
     Aborded,
-    Closed
+    Closed,
+    NoArdwareSupported
 }
 
 public enum WifiDirectWatcherStatus
