@@ -240,8 +240,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
         BrowseCommand = new RelayCommand(async _ => await ExecuteBrowseAsync());
         ChangeFolderCommand = new RelayCommand(_ => ExecuteChangeFolder());
-        RetryCommand = new RelayCommand(_ => RetryPage());
-        ReloadCommand = new RelayCommand(_ => Reload());
+        RetryCommand = new RelayCommand(_ => RetrySearch());
+        ReloadCommand = new RelayCommand(_ => ReloadPage());
         ScanCommand = new RelayCommand(_ => StartDiscovery());
         DeleteAllCommand = new RelayCommand(_ => DeleteAll());
         DeleteItemCommand = new RelayCommand(param => DeleteItem(param as FileI), param => param is FileI);
@@ -468,8 +468,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     private void DeleteItem(FileI? file) { if (file != null) PendingFiles.Remove(file);}
     private void OpenDownloadFolder() => Process.Start(new ProcessStartInfo { FileName = DownloadFolder, UseShellExecute = true });
     private void ClearTransferHistory() => RecentTransfers.Clear();
-    private void Reload() => _=InitializeAsync();
-    private void RetryPage() { _wifiService.Stop(); _ = InitializeAsync(); }
+    private void ReloadPage() => _=InitializeAsync();
+    private void RetrySearch() { _wifiService.Stop(); StartDiscovery(); }
     private void UpdateDropStatus() => DropStatusText = PendingFiles.Count == 0 ? "Aucun élément" : $"{PendingFiles.Count} prêt(s).";
     private void WifiService_StatusChanged(object? sender, WifiDirectStatusEventArgs e) => Application.Current.Dispatcher.Invoke(() => { /*MessageText = $"Statut matériel : {e.Status}"*/; });
     private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) => Application.Current.Dispatcher.Invoke(() => { if (!DiscoveredDevices.Contains(e.Peer)) DiscoveredDevices.Add(e.Peer); });

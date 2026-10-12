@@ -485,12 +485,14 @@
                                     HorizontalAlignment="Right"
                                     Command="{Binding ScanCommand}"
                                     Content="Recherche"
+                                    Visibility="{Binding StartB}"
                                     FontSize="12"
                                     Style="{StaticResource CaptivatingButtonStyle}" />
                                 <Button
                                     Grid.Column="1"
                                     Padding="6"
                                     Margin="2,0,0,0"
+                                    Visibility="{Binding StopB}"
                                     VerticalAlignment="Center"
                                     HorizontalAlignment="Right"
                                     Command="{Binding RetryCommand}"
@@ -529,14 +531,29 @@
                                                     Text="{Binding Id}"
                                                     TextTrimming="CharacterEllipsis" />
                                                 </StackPanel>
-                                                <Button
-                                                Grid.Column="1"
-                                                Padding="10,6"
-                                                Command="{Binding DataContext.ConnectAndSendCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                CommandParameter="{Binding}"
-                                                Content="Envoyer →"
-                                                FontSize="11"
-                                                Style="{StaticResource CaptivatingButtonStyle}" />
+                                                <StackPanel
+                                                    Grid.Column="1"
+                                                    Orientation="Horizontal">
+                                                    <Button
+                                                        Background="Transparent"
+                                                        Command="{Binding DataContext.ConnectCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"
+                                                        FontFamily="Segoe Fluent Icons"
+                                                        Content="&#xE703;"
+                                                        Padding="2,0"
+                                                        FontSize="18"
+                                                        Margin="2,0"/>
+                                                    <Button
+                                                        Padding="2,0"
+                                                        Margin="2,0"
+                                                        Background="Transparent"
+                                                        Command="{Binding DataContext.ConnectAndSendCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"
+                                                        FontFamily="Segoe Fluent Icons"
+                                                        Content="&#xE724;"
+                                                        FontSize="18"/>
+                                                </StackPanel>
+                                                
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
