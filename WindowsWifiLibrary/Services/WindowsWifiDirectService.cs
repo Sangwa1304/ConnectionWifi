@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Windows.Devices.Enumeration;
 using Windows.Devices.WiFiDirect;
 using WindowsWifiLibrary.Interfaces;
@@ -107,30 +108,32 @@ namespace WindowsWifiLibrary.Services
  
             _listener = new WiFiDirectConnectionListener(); 
             _listener.ConnectionRequested += OnConnectionRequested;
-            await Task.Delay(1000, token);
             _publisher.Start();
             PublisherStatus = WifiDirectPublicherStatus.Started;
         } 
  
         public async Task StartSubscribingAsync(CancellationToken token) 
         {
-            StopWatcher(); 
- 
-            string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint); 
-            _deviceWatcher =DeviceInformation.CreateWatcher(deviceSelector);
-                
+            StopWatcher();
+            string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint);
+            _deviceWatcher = DeviceInformation.CreateWatcher(deviceSelector);
+            _deviceWatcher.EnumerationCompleted += _deviceWatcher_EnumerationCompleted;
             _deviceWatcher.Added += OnDeviceAdded;
             _deviceWatcher.Updated += OnDeviceUpdated; 
             _deviceWatcher.Removed += OnDeviceRemoved;
-            await Task.Delay(1000, token);
-            _deviceWatcher.Start(); 
-            WatcherStatus= WifiDirectWatcherStatus.Started; 
-        } 
- 
+            _deviceWatcher.Start();
+            WatcherStatus= WifiDirectWatcherStatus.Started;
+        }
+
+        private void _deviceWatcher_EnumerationCompleted(DeviceWatcher sender, object args)
+        {
+            Debug.Write("Finiched");
+        }
+
         public async Task StartPublisherSubscribingAsync(CancellationToken token) 
         {
             if (token.IsCancellationRequested) return;
-            _=StartPublishingAsync(token); 
+            await StartPublishingAsync(token); 
             await StartSubscribingAsync(token);
             if (token.IsCancellationRequested) Stop();
             CurrentStatus = WifiDirectStatus.Disconnected;
@@ -344,10 +347,7 @@ namespace WindowsWifiLibrary.Services
         private void StopWatcher()
         {
             if (_deviceWatcher != null) 
-            { 
-                _deviceWatcher.Added -= OnDeviceAdded; 
-                _deviceWatcher.Updated -= OnDeviceUpdated; 
-                _deviceWatcher.Removed -= OnDeviceRemoved; 
+            {
                 _deviceWatcher.Stop();
                 _deviceWatcher = null;
             }
