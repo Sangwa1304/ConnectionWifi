@@ -1,4 +1,3 @@
-
 namespace WindowsWifiWpf.ViewModels;
 
 public static class Init

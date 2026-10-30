@@ -5,10 +5,4 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-
-  <ItemGroup>
-    <None Remove="libcrypto-1_1.dll" />
-    <None Remove="libssl-1_1.dll" />
-    <None Remove="PubPlatform.exe" />
-  </ItemGroup>
 </Project>

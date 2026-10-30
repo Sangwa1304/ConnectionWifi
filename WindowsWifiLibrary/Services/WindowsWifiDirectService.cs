@@ -169,12 +169,18 @@ namespace WindowsWifiLibrary.Services
                 }
                 if (device.DeviceId == peer?.Id)
                 {
+                    _connectedDevices.Remove(device);
                     device.Dispose();
+
+                    if (_connectedDevices.Count == 0)
+                    {
+                        CurrentStatus = WifiDirectStatus.Disconnected;
+                        _ = StartPublishingAsync(default);
+                    }
                     return true;
                 }
             }
             return false;
-
         }
         public async Task<bool> ConnectToPeerAsync(WifiDirectPeer peer,CancellationToken token) 
         {
@@ -285,10 +291,11 @@ namespace WindowsWifiLibrary.Services
                 ConnectionClosed?.Invoke(this,new(new(sender.DeviceId,"Appareil deconnecté"))); 
                 if(_connectedDevices.Count == 0)
                 {
-                    CurrentStatus = WifiDirectStatus.Disconnected; 
+                    CurrentStatus = WifiDirectStatus.Disconnected;
+                    _ = StartPublishingAsync(default);
                 }
-            } 
-        } 
+            }
+        }
  
         private void OnDeviceAdded(DeviceWatcher sender, DeviceInformation args) 
         { 

@@ -159,8 +159,15 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<WifiDirectPeer> DiscoveredDevices { get; } = [];
     public ObservableCollection<FileI> PendingFiles { get; } = [];
     public ObservableCollection<TransferHistoryEntry> RecentTransfers { get; } = [];
-    
-    public WifiDirectPeer? PeerConnecte { get; private set; }
+    private WifiDirectPeer? _PeerConnecte;
+    public WifiDirectPeer? PeerConnecte {
+        get => _PeerConnecte;
+        private set
+        {
+            _PeerConnecte = value;
+            OnPropertyChanged(nameof(PeerConnecte));
+        } 
+    }
     public bool HasRecentTransfers => RecentTransfers.Count > 0;
     public bool HasPendingFiles => PendingFiles.Count > 0;
     public bool NoPendingFiles => !HasPendingFiles;
@@ -477,7 +484,6 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         => 
         Application.Current.Dispatcher.Invoke(() => 
         {
-
             OnPropertyChanged(nameof(NoHardwardSuported));
             OnPropertyChanged(nameof(PageReloadNoVisible));
             OnPropertyChanged(nameof(PageReloadVisible));

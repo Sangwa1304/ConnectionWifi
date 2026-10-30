@@ -4,7 +4,9 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="clr-namespace:WindowsWifiWpf"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:viewmodels="clr-namespace:WindowsWifiWpf.ViewModels" d:DataContext="{d:DesignInstance Type=viewmodels:MainViewModel}"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+    xmlns:viewmodels="clr-namespace:WindowsWifiWpf.ViewModels" 
+    d:DataContext="{d:DesignInstance Type=viewmodels:MainViewModel}"
     Title="Windows Wi-Fi P2P - NextGen"
     AutomationProperties.Name="Windows Wi-Fi P2P"
     FocusManager.FocusedElement="{Binding RelativeSource={RelativeSource Self}}"
@@ -136,9 +138,9 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Center"
-                    Orientation="Horizontal">
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal">
                         <Ellipse
                         Width="10"
                         Height="10"
@@ -419,8 +421,7 @@
                             Content="Deconnecter"
                             FontSize="11"
                             Margin="2"
-                            Background="Red"
-                            Style="{StaticResource CaptivatingButtonStyle}" />
+                            Background="Red"/>
                             <Button
                             Grid.Column="1"
                             Padding="6,6"
@@ -431,8 +432,7 @@
                             CommandParameter="{Binding PeerConnecte}"
                             Content="envoyer ->"
                             FontSize="11"
-                            Background="Green"
-                            Style="{StaticResource CaptivatingButtonStyle}" />
+                            Background="Green" />
                         </StackPanel>
                     </Grid>
                 </Border>

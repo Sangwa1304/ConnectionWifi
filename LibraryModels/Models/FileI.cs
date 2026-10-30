@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace LibraryMI.Models;
 
-public class FileI
+public class FileI : IEquatable<FileI?>
 {
     public string PathFile { get; }
     public string Name { get; }
@@ -49,5 +49,33 @@ public class FileI
         if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.##} Ko";
         if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):0.##} Mo";
         return $"{bytes / (1024.0 * 1024 * 1024):0.##} Go";
+    }
+
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as FileI);
+    }
+
+    public bool Equals(FileI? other)
+    {
+        return other is not null &&
+               PathFile == other.PathFile &&
+               Name == other.Name &&
+               Size == other.Size;
+    }
+
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(PathFile, Name, Size);
+    }
+
+    public static bool operator ==(FileI? left, FileI? right)
+    {
+        return EqualityComparer<FileI>.Default.Equals(left, right);
+    }
+
+    public static bool operator !=(FileI? left, FileI? right)
+    {
+        return !(left == right);
     }
 }

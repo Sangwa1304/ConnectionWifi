@@ -9,10 +9,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="RarExt32.dll" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\LibraryModels\LibraryMI.csproj" />
     <ProjectReference Include="..\ServiceTcpChared\ServiceTcpChared.csproj" />
     <ProjectReference Include="..\WindowsWifiLibrary\WindowsWifiLibrary.csproj" />

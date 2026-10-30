@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ShareBoost.UI (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "ShareBoost.UI (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
