@@ -13,6 +13,7 @@
 */
 
 using Newtonsoft.Json;
+using System.Security.Cryptography;
 
 namespace ServiceTcpChared;
 
@@ -41,6 +42,7 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
     public bool Etat = false;
     public readonly string NameWithExtension;
     public readonly string SessionId;
+    public readonly string FileHash;
     private readonly int HachInfoDescription;
     public readonly long Length;
 
@@ -54,6 +56,7 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
         NameWithExtension,
         Length,
         SessionId,
+        FileHash,
         HachInfoDescription
     });
 
@@ -64,12 +67,13 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
             var metadata = JsonConvert.DeserializeObject<MetadataPayload>(json);
 
             if (metadata is null || !IsValidMetadata(metadata.NameWithExtension, metadata.Length) ||
+                !IsValidHash(metadata.FileHash) ||
                 string.IsNullOrWhiteSpace(metadata.SessionId) || !Guid.TryParseExact(metadata.SessionId, "N", out _))
             {
                 return null;
             }
 
-            return new InfoMeta(metadata.NameWithExtension, metadata.Length, metadata.HachInfoDescription, metadata.SessionId);
+            return new InfoMeta(metadata.NameWithExtension, metadata.Length, metadata.HachInfoDescription, metadata.SessionId, metadata.FileHash);
         }
         catch (Exception ex)
         {
@@ -93,6 +97,7 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
         public string? NameWithExtension { get; set; }
         public long Length { get; set; }
         public string? SessionId { get; set; }
+        public string? FileHash { get; set; }
         public int HachInfoDescription { get; set; }
     }
 
@@ -112,13 +117,15 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
         Length = inf.Length;
         NameWithExtension = inf.Name;
         SessionId = NormalizeSessionId(sessionId);
+        FileHash = ComputeFileHash(file);
         HachInfoDescription = GetHashCode();
     }
 
-    private InfoMeta(string nameWithExtension, long length, int hach, string sessionId)
+    private InfoMeta(string nameWithExtension, long length, int hach, string sessionId, string fileHash)
     {
         if (!IsValidMetadata(nameWithExtension, length) ||
-            !Guid.TryParseExact(sessionId, "N", out _))
+            !Guid.TryParseExact(sessionId, "N", out _) ||
+            !IsValidHash(fileHash))
         {
             throw new ArgumentException("Les métadonnées du fichier sont invalides.");
         }
@@ -126,6 +133,7 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
         NameWithExtension = nameWithExtension;
         Length = length;
         SessionId = sessionId;
+        FileHash = fileHash;
         HachInfoDescription = hach;
     }
     public static InfoMetaArgs GetInfoMetaArgs(Dictionary<InfoMeta, string> metasDictionnarys)
@@ -146,6 +154,7 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
                 NameWithExtension = inf.NameWithExtension,
                 Length = inf.Length,
                 SessionId = inf.SessionId,
+                FileHash = inf.FileHash,
                 HachInfoDescription = inf.HachInfoDescription
             });
         }
@@ -179,7 +188,12 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
                 throw new JsonException("Les métadonnées de la session sont incohérentes.");
             }
 
-            infoMetas.Add(new(inf.NameWithExtension!, inf.Length, inf.HachInfoDescription, inf.SessionId));
+            if (!IsValidHash(inf.FileHash))
+            {
+                throw new JsonException("L'empreinte du fichier est invalide.");
+            }
+
+            infoMetas.Add(new(inf.NameWithExtension!, inf.Length, inf.HachInfoDescription, inf.SessionId, inf.FileHash));
         }
 
         return new([.. infoMetas]);
@@ -187,49 +201,37 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
 
     public string GetDirectFile(string downloadPath)
     {
-        var direct = Path.Combine(downloadPath, NameWithExtension);
-        if (File.Exists(direct))
+        string root = Path.GetFullPath(downloadPath);
+        string direct = Path.Combine(root, NameWithExtension);
+        if (!IsPathInDirectory(root, direct))
         {
-           return ReadapteFileName(direct);
+            throw new InvalidDataException("Le chemin de destination est invalide.");
         }
-        else
+
+        if (!File.Exists(direct))
         {
             return direct;
-        }  
+        }
+
+        return ReadapteFileName(direct);
     }
 
-    private string ReadapteFileName( string direct)
+    private static string ReadapteFileName(string direct)
     {
-        if(File.Exists(direct))
-        {
-            var n = Path.GetFileName(direct);
-            if (n.StartsWith("Again_("))
-            {
-                var nb = n.Split('(')[1].Split(')')[0];
-                _ = int.TryParse(nb, out int h);
-                
-                h++;
-                var newnb = "Again_(" + $"{h}" + ")";
-                try
-                {
-                    n = n.Replace("Again_(" + $"{nb}" + ")", newnb);
-                    
-                }
-                catch(Exception)
-                {
-                    n = "s_" + n;
-                }
-                
-            }
-            else n = "Again_(1)" + n;
+        string directory = Path.GetDirectoryName(direct)
+            ?? throw new InvalidDataException("Le dossier de destination est invalide.");
+        string name = Path.GetFileName(direct);
 
-            string direc = direct.Replace(Path.GetFileName(direct), n);
-            return ReadapteFileName(direc);
-        }
-        else
+        for (int attempt = 1; attempt <= 100_000; attempt++)
         {
-            return direct;
+            string candidate = Path.Combine(directory, $"Again_({attempt}){name}");
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
         }
+
+        throw new IOException("Impossible de déterminer un nom de destination disponible.");
     }
 
     public string GetTempFile(string downloadPath, string extension)
@@ -238,7 +240,14 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
         {
             extension = ".san";
         }
-        return Path.Combine(downloadPath, $"{NameWithoutExtension}{extension}");
+        string root = Path.GetFullPath(downloadPath);
+        string temporary = Path.Combine(root, $".{SessionId}.{FileHash}{extension}");
+        if (!IsPathInDirectory(root, temporary))
+        {
+            throw new InvalidDataException("Le chemin temporaire est invalide.");
+        }
+
+        return temporary;
     }
 
     internal static Dictionary<InfoMeta, string> GetMetas(string[] files, string? sessionId = null)
@@ -286,10 +295,17 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
         return other is not null &&
                SessionId == other.SessionId &&
                NameWithExtension == other.NameWithExtension &&
-               Length == other.Length;
+               Length == other.Length &&
+               FileHash == other.FileHash;
     }
 
-    public override int GetHashCode() => HashCode.Combine(SessionId, NameWithExtension, Length);
+    public override int GetHashCode() => HashCode.Combine(SessionId, NameWithExtension, Length, FileHash);
+
+    internal static string ComputeFileHash(string file)
+    {
+        using FileStream stream = new(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return Convert.ToHexString(SHA256.HashData(stream));
+    }
 
     private static string NormalizeSessionId(string? sessionId) =>
         Guid.TryParseExact(sessionId, "N", out Guid value)
@@ -307,6 +323,17 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
 
         return name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
                name.All(character => !char.IsControl(character));
+    }
+
+    private static bool IsValidHash(string? hash) =>
+        !string.IsNullOrWhiteSpace(hash) && hash.Length == 64 &&
+        hash.All(Uri.IsHexDigit);
+
+    private static bool IsPathInDirectory(string directory, string path)
+    {
+        string normalizedDirectory = Path.TrimEndingDirectorySeparator(directory) + Path.DirectorySeparatorChar;
+        string normalizedPath = Path.GetFullPath(path);
+        return normalizedPath.StartsWith(normalizedDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool operator ==(InfoMeta? left, InfoMeta? right) => EqualityComparer<InfoMeta>.Default.Equals(left, right);

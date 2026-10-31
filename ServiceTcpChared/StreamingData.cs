@@ -217,6 +217,7 @@ public class StreamingData
                         await Task.Delay(2000, operationToken);
                     }
 
+                    string? temp = null;
                     try
                     {
                         while (infoMetaArgsReceived.Count != 0 && !operationToken.IsCancellationRequested)
@@ -225,7 +226,7 @@ public class StreamingData
                             await Task.Delay(100, operationToken);
 
 
-                            string temp = metaFile.GetTempFile(DownloadDirectory, ".san");
+                            temp = metaFile.GetTempFile(DownloadDirectory, ".part");
                             string direct = metaFile.GetDirectFile(DownloadDirectory);
                             FileReceivedOrSend = metaFile.NameWithExtension;
                             // Côté client : envoyer la métadonnée au serveur
@@ -242,20 +243,30 @@ public class StreamingData
                             {
                                 await foreach (var f in StartReadBytesAsync(null, metaFile.Length, operationToken))
                                 {
-                                    await stm.WriteAsync(f, token);
+                                    await stm.WriteAsync(f, operationToken);
                                 }
                             }
+
+                            FileInfo receivedFile = new(temp);
+                            if (receivedFile.Length != metaFile.Length ||
+                                !string.Equals(InfoMeta.ComputeFileHash(temp), metaFile.FileHash, StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new InvalidDataException("L'intégrité du fichier reçu n'a pas pu être vérifiée.");
+                            }
+
+                            File.Move(temp, direct);
                             FilesFiniched.Add(new(metaFile.NameWithExtension, metaFile.Length, TransfertType.Recu, DateTime.Now));
                             infoMetaArgsReceived.Remove(metaFile);
-                            File.Move(temp, direct);
                         }
                     }
                     catch (OperationCanceledException) when (operationToken.IsCancellationRequested)
                     {
+                        DeleteTemporaryFile(temp);
                         return;
                     }
                     catch(Exception ex)
                     {
+                        DeleteTemporaryFile(temp);
                         Debug.WriteLine("Erreur de reception : " + ex.Message);
                         ConnectionClosed?.Invoke();
                         return;
@@ -307,6 +318,11 @@ public class StreamingData
                 fileComplete?.Invoke();
                 break;
             }
+        }
+
+        if (Counter > 0)
+        {
+            throw new EndOfStreamException("Le fichier reçu est incomplet.");
         }
     }
 
@@ -384,6 +400,26 @@ public class StreamingData
             }
 
             offset += read;
+        }
+    }
+
+    private static void DeleteTemporaryFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException ex)
+        {
+            Debug.WriteLine($"Impossible de supprimer le fichier temporaire : {ex.Message}");
         }
     }
 }
