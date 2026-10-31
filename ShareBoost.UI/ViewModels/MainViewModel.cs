@@ -1,6 +1,7 @@
 using LibraryMI.Models;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using ServiceTcpChared;
 using System;
@@ -14,6 +15,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using Windows.Graphics;
+using Windows.Media.Core;
+using Windows.Storage;
 using Windows.Storage.Pickers;
 using WindowsWifiLibrary.Models;
 using WindowsWifiLibrary.Services;
@@ -183,7 +187,15 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         get => _PeerConnecte;
         private set { _PeerConnecte = value; OnPropertyChanged(nameof(PeerConnecte)); }
     }
-
+    public string _SourcePlayer = "";
+    public string SourcePlayer {
+        get => _SourcePlayer;
+        set
+        {
+            _SourcePlayer = value;
+            OnPropertyChanged(nameof(SourcePlayer));
+        }
+    }
     public bool HasRecentTransfers => RecentTransfers.Count > 0;
     public bool HasPendingFiles => PendingFiles.Count > 0;
     public bool NoPendingFiles => !HasPendingFiles;
@@ -220,6 +232,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ReloadCommand { get; }
     public ICommand OpenSourceDirectoryCommand { get; }
     public ICommand OpenFileCommand { get; }
+    public ICommand PlayThisCommand { get; }
     public ICommand ScanCommand { get; }
     public ICommand SendCommand { get; }
     public ICommand DisconnectCommand { get; }
@@ -251,6 +264,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         DeleteAllCommand = new RelayCommand(_ => DeleteAll());
         OpenSourceDirectoryCommand = new RelayCommand(param => OpenDirectory(param as FileI), param => param is FileI);
         OpenFileCommand = new RelayCommand(param => OpenFile(param as FileI), param => param is FileI);
+        PlayThisCommand = new RelayCommand(param => PlayFile(param as FileI), param => param is FileI);
         DeleteItemCommand = new RelayCommand(param => DeleteItem(param as FileI), param => param is FileI);
         ConnectAndSendCommand = new RelayCommand(async param => await ConnectAndSendAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
         ConnectCommand = new RelayCommand(async param => await ConnectAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
@@ -492,11 +506,24 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            Process.Start(new ProcessStartInfo { FileName = file.PathFile, UseShellExecute = true });
+            if (file?.IsPlayer?? false) 
+            {
+                PlayFile(file);
+            }
+            else 
+                Process.Start(new ProcessStartInfo { FileName = file?.PathFile, UseShellExecute = true });
         }
         catch (Exception)
         {
         }
+    }
+    CancellationTokenSource _ctsPlayer;
+    private void PlayFile(FileI? file)
+    {
+        if(_ctsPlayer == null || _ctsPlayer.IsCancellationRequested)
+            _ctsPlayer = new CancellationTokenSource();
+        _=PlayFile(file?.PathFile ?? "",_ctsPlayer.Token);
+
     }
 
     private void OpenDownloadFolder() => Process.Start(new ProcessStartInfo { FileName = DownloadFolder, UseShellExecute = true });
@@ -590,5 +617,39 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         public void Execute(object? parameter) => _execute(parameter);
         public event EventHandler? CanExecuteChanged;
         public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+    }
+    private Window? ChildWindow = null;
+    private MediaPlayerElement? Player = null;
+    private bool isClose = true;
+    public async Task PlayFile(string path,CancellationToken token)
+    {
+        bool active = ChildWindow == null;
+        if (string.IsNullOrEmpty(path)) return;
+        var mediaSource = MediaSource.CreateFromStorageFile(await StorageFile.GetFileFromPathAsync(path));
+
+        Player = new MediaPlayerElement()
+        {
+            Source = mediaSource,
+            AutoPlay = true,
+            AreTransportControlsEnabled = true
+        };
+        // Ensure you close the child window before closing the parent window to avoid application crash.
+        ChildWindow = isClose? new Window()
+        {
+            ExtendsContentIntoTitleBar = true,
+            SystemBackdrop = new MicaBackdrop(),
+            Content = new Page()
+            {
+                Content = Player
+            }
+        } : ChildWindow;
+        if (isClose)
+        {
+            isClose = false;
+            ChildWindow?.AppWindow.ResizeClient(new SizeInt32(400,100));
+            ChildWindow?.Activate();
+            ChildWindow?.Closed += (_, _) => { isClose = true; Player = null; };
+            token.Register(() => { ChildWindow?.Close(); ChildWindow = null; Player = null; });
+        }
     }
 }
