@@ -18,7 +18,7 @@ namespace ServiceTcpChared;
 
 public class InfoMetas(IEnumerable<InfoMeta> metas)
 { 
-    public InfoMeta[] Metas { get; } = [..metas];
+    public InfoMeta[] Metas { get; } = [.. metas];
     public long Length => Count();
 
     private long Count()
@@ -34,8 +34,13 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
 
     public class InfoMeta : IEquatable<InfoMeta?>
 {
+    internal const int MaxFileNameLength = 255;
+    internal const int MaxFilesPerTransfer = 10_000;
+    internal const long MaxFileLength = 1L * 1024 * 1024 * 1024 * 1024;
+
     public bool Etat = false;
     public readonly string NameWithExtension;
+    public readonly string SessionId;
     private readonly int HachInfoDescription;
     public readonly long Length;
 
@@ -47,7 +52,9 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
     public string Json => JsonConvert.SerializeObject(new
     {
         NameWithExtension,
-        Length
+        Length,
+        SessionId,
+        HachInfoDescription
     });
 
     public static InfoMeta? Object(string json)
@@ -56,12 +63,13 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
         {
             var metadata = JsonConvert.DeserializeObject<MetadataPayload>(json);
 
-            if (metadata is null || string.IsNullOrWhiteSpace(metadata.NameWithExtension))
+            if (metadata is null || !IsValidMetadata(metadata.NameWithExtension, metadata.Length) ||
+                string.IsNullOrWhiteSpace(metadata.SessionId) || !Guid.TryParseExact(metadata.SessionId, "N", out _))
             {
                 return null;
             }
 
-            return new InfoMeta(metadata.NameWithExtension, metadata.Length,metadata.HachInfoDescription);
+            return new InfoMeta(metadata.NameWithExtension, metadata.Length, metadata.HachInfoDescription, metadata.SessionId);
         }
         catch (Exception ex)
         {
@@ -84,10 +92,11 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
     {
         public string? NameWithExtension { get; set; }
         public long Length { get; set; }
+        public string? SessionId { get; set; }
         public int HachInfoDescription { get; set; }
     }
 
-    public InfoMeta(string file)
+    public InfoMeta(string file, string? sessionId = null)
     {
         if (string.IsNullOrWhiteSpace(file))
         {
@@ -102,13 +111,21 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
 
         Length = inf.Length;
         NameWithExtension = inf.Name;
+        SessionId = NormalizeSessionId(sessionId);
         HachInfoDescription = GetHashCode();
     }
 
-    private InfoMeta(string nameWithExtension, long length,int hach)
+    private InfoMeta(string nameWithExtension, long length, int hach, string sessionId)
     {
+        if (!IsValidMetadata(nameWithExtension, length) ||
+            !Guid.TryParseExact(sessionId, "N", out _))
+        {
+            throw new ArgumentException("Les métadonnées du fichier sont invalides.");
+        }
+
         NameWithExtension = nameWithExtension;
         Length = length;
+        SessionId = sessionId;
         HachInfoDescription = hach;
     }
     public static InfoMetaArgs GetInfoMetaArgs(Dictionary<InfoMeta, string> metasDictionnarys)
@@ -124,7 +141,13 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
 
         foreach(var inf in metaArgs.Meta)
         {
-            infoMetas.Add(new MetadataPayload { NameWithExtension = inf.NameWithExtension, Length = inf.Length, HachInfoDescription = inf.HachInfoDescription});
+            infoMetas.Add(new MetadataPayload
+            {
+                NameWithExtension = inf.NameWithExtension,
+                Length = inf.Length,
+                SessionId = inf.SessionId,
+                HachInfoDescription = inf.HachInfoDescription
+            });
         }
 
         return JsonConvert.SerializeObject(infoMetas);
@@ -132,14 +155,31 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
 
     public static InfoMetaArgs GetObjectMetasTabel(string metaArgs)
     {
-        var liste = JsonConvert.DeserializeObject<List<MetadataPayload>>(metaArgs);
-        List<InfoMeta> infoMetas = new();
-        if (liste != null)
+        var liste = JsonConvert.DeserializeObject<List<MetadataPayload>>(metaArgs)
+            ?? throw new JsonException("La liste de métadonnées est vide ou invalide.");
+
+        if (liste.Count == 0 || liste.Count > MaxFilesPerTransfer)
         {
-            foreach(var inf in liste)
+            throw new JsonException("Le nombre de fichiers de la session est invalide.");
+        }
+
+        string? sessionId = null;
+        List<InfoMeta> infoMetas = new();
+        foreach (var inf in liste)
+        {
+            if (inf.SessionId is null || !Guid.TryParseExact(inf.SessionId, "N", out _))
             {
-                infoMetas.Add(new(inf.NameWithExtension, inf.Length,inf.HachInfoDescription));
+                throw new JsonException("La session de métadonnées est invalide.");
             }
+
+            sessionId ??= inf.SessionId;
+            if (!string.Equals(sessionId, inf.SessionId, StringComparison.Ordinal) ||
+                !IsValidMetadata(inf.NameWithExtension, inf.Length))
+            {
+                throw new JsonException("Les métadonnées de la session sont incohérentes.");
+            }
+
+            infoMetas.Add(new(inf.NameWithExtension!, inf.Length, inf.HachInfoDescription, inf.SessionId));
         }
 
         return new([.. infoMetas]);
@@ -201,14 +241,14 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
         return Path.Combine(downloadPath, $"{NameWithoutExtension}{extension}");
     }
 
-    internal static Dictionary<InfoMeta, string> GetMetas(string[] files)
+    internal static Dictionary<InfoMeta, string> GetMetas(string[] files, string? sessionId = null)
     {
         var pathlist = new Dictionary<InfoMeta, string>();
         foreach (var file in files)
         {
             try
             {
-                var meta = new InfoMeta(file);
+                var meta = new InfoMeta(file, sessionId);
                 pathlist[meta] = file;
             }
             catch (Exception)
@@ -223,7 +263,7 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
     {
         foreach (var file in files.Keys)
         {
-            if (file.HachInfoDescription == meta.HachInfoDescription)
+            if (file.SessionId == meta.SessionId && file.HachInfoDescription == meta.HachInfoDescription)
             {
                 path = files[file];
                 return true;
@@ -244,11 +284,30 @@ public class InfoMetas(IEnumerable<InfoMeta> metas)
     public bool Equals(InfoMeta? other)
     {
         return other is not null &&
+               SessionId == other.SessionId &&
                NameWithExtension == other.NameWithExtension &&
                Length == other.Length;
     }
 
-    public override int GetHashCode() => HashCode.Combine(NameWithExtension, Length);
+    public override int GetHashCode() => HashCode.Combine(SessionId, NameWithExtension, Length);
+
+    private static string NormalizeSessionId(string? sessionId) =>
+        Guid.TryParseExact(sessionId, "N", out Guid value)
+            ? value.ToString("N")
+            : Guid.NewGuid().ToString("N");
+
+    private static bool IsValidMetadata(string? name, long length)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > MaxFileNameLength ||
+            length < 0 || length > MaxFileLength || Path.GetFileName(name) != name ||
+            Path.IsPathRooted(name) || name is "." or "..")
+        {
+            return false;
+        }
+
+        return name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+               name.All(character => !char.IsControl(character));
+    }
 
     public static bool operator ==(InfoMeta? left, InfoMeta? right) => EqualityComparer<InfoMeta>.Default.Equals(left, right);
     public static bool operator !=(InfoMeta? left, InfoMeta? right) => !(left == right);

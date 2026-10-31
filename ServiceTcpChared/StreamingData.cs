@@ -31,6 +31,8 @@ public class StreamingData
     public record FileFinishe(string Name, long Length, TransfertType Transfert,DateTime Time );
     public const int Port1 = 1304;
     public const int Port2 = 1904;
+    private static readonly TimeSpan FrameTimeout = TimeSpan.FromSeconds(30);
+    private readonly string SessionId = Guid.NewGuid().ToString("N");
     public float Percentage
         {
         get
@@ -108,7 +110,13 @@ public class StreamingData
                 await foreach (var files in FilesToSend.GetAsyncCollection(operationToken))
                 {
                     if (!await ReceiveResponseAsync(operationToken)) return;
-                    Dictionary<InfoMeta, string> pathlist = InfoMeta.GetMetas(files);
+                    Dictionary<InfoMeta, string> pathlist = InfoMeta.GetMetas(files, SessionId);
+                    if (pathlist.Count == 0 || pathlist.Count > InfoMeta.MaxFilesPerTransfer ||
+                        pathlist.Values.Sum(path => new FileInfo(path).Length) > InfoMeta.MaxFileLength)
+                    {
+                        throw new InvalidDataException("Le transfert dépasse les limites autorisées.");
+                    }
+
                     string metaArgsForSend = InfoMeta.GetJsonMetasTabel(InfoMeta.GetInfoMetaArgs(pathlist));
                     try
                     {
@@ -125,19 +133,19 @@ public class StreamingData
                             }
                             catch (Exception ex)
                             {
-                                await SendResponseAsync(false, token);
+                                await SendResponseAsync(false, operationToken);
                                 Console.WriteLine($"Erreur de désérialisation des métadonnées : {ex.Message}");
                                 continue;
                             }
 
                             if (requestedMeta == null || !InfoMeta.GetInstanceDirectory(requestedMeta, pathlist, out var path))
                             {
-                                await SendResponseAsync(false, token);
+                                await SendResponseAsync(false, operationToken);
                                 continue;
 
                             }
-                            await SendResponseAsync(true, token);
-                            await Task.Delay(1000, token);
+                            await SendResponseAsync(true, operationToken);
+                            await Task.Delay(1000, operationToken);
 
                             using FileStream file = new(path: path, FileMode.Open, FileAccess.Read);
                             _Counter = file.Length;
@@ -167,9 +175,6 @@ public class StreamingData
                         return;
                     }
                 }
-            }
-            catch (OperationCanceledException) when (operationToken.IsCancellationRequested)
-            {
             }
             catch (OperationCanceledException) when (operationToken.IsCancellationRequested)
             {
@@ -340,17 +345,21 @@ public class StreamingData
             throw new InvalidDataException("La trame TCP est trop volumineuse.");
         }
 
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(FrameTimeout);
         NetworkStream stream = GetStream();
         byte[] lengthPrefix = BitConverter.GetBytes(payload.Length);
-        await stream.WriteAsync(lengthPrefix, token);
-        await stream.WriteAsync(payload, token);
+        await stream.WriteAsync(lengthPrefix, timeout.Token);
+        await stream.WriteAsync(payload, timeout.Token);
     }
 
     private async Task<byte[]> ReceiveFrameAsync(CancellationToken token)
     {
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(FrameTimeout);
         NetworkStream stream = GetStream();
         byte[] lengthPrefix = new byte[sizeof(int)];
-        await ReadExactlyAsync(stream, lengthPrefix, token);
+        await ReadExactlyAsync(stream, lengthPrefix, timeout.Token);
 
         int payloadLength = BitConverter.ToInt32(lengthPrefix, 0);
         if (payloadLength < 0 || payloadLength > 16 * 1024 * 1024)
@@ -359,7 +368,7 @@ public class StreamingData
         }
 
         byte[] payload = new byte[payloadLength];
-        await ReadExactlyAsync(stream, payload, token);
+        await ReadExactlyAsync(stream, payload, timeout.Token);
         return payload;
     }
 
