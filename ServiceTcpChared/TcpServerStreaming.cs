@@ -20,6 +20,7 @@ namespace ServiceTcpChared;
 public class TcpServerStreaming : StreamingData, ITcpStreaming
 {
     private TcpListener? Server;
+    private TcpClient? Client;
     public Int32 Port { get; }
     public IPAddress Address { get; }
     public override event Action? StreamingCreated;
@@ -33,26 +34,37 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
 
     public async Task StartConnection(CancellationToken token)
     {
-        Server = new(Address, Port);
-        Server.Start();
+        Stop();
+        TcpListener server = new(Address, Port);
+        Server = server;
         try
         {
-            await Task.Delay(100, token);
-            var client = await Server.AcceptTcpClientAsync(token);
+            server.Start();
+            TcpClient client = await server.AcceptTcpClientAsync(token);
+            Client = client;
 
             Stream = client.GetStream();
-            //StreamingCreated?.Invoke();
-            _= StartSend(token);
+            StreamingCreated?.Invoke();
+            await StartSend(token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            server.Stop();
         }
         catch (Exception)
         {
-            Server?.Stop();
+            server.Stop();
+            ConnectionClosed?.Invoke();
         }
     }
 
     public override void Stop()
     {
+        base.Stop();
         Server?.Stop();
+        Client?.Dispose();
+        Client = null;
+        Server = null;
     }
 
     public void Add(List<string> items)
