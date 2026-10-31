@@ -17,6 +17,8 @@ namespace WindowsWifiLibrary.Services
         private readonly ConcurrentDictionary<string, WiFiDirectConnectionRequest>  _pendingInvitations = new();
         private WifiDirectPublicherStatus _PublisherStatus = WifiDirectPublicherStatus.Closed;
         private WifiDirectWatcherStatus _WatcherStatus = WifiDirectWatcherStatus.Closed;
+        private readonly object _sync = new();
+        private bool _disposed;
 
 
         public WifiDirectPublicherStatus PublisherStatus 
@@ -48,7 +50,6 @@ namespace WindowsWifiLibrary.Services
         
         public WindowsWifiDirectService()
         {
-            _=InitializeAsync(default);
         }
 
         public WifiDirectStatus CurrentStatus
@@ -79,17 +80,23 @@ namespace WindowsWifiLibrary.Services
  
         public async Task<bool> InitializeAsync(CancellationToken token) 
         { 
+            ThrowIfDisposed();
             try 
             {
-                await Task.Delay(300);
+                await Task.Delay(300, token);
                 token.ThrowIfCancellationRequested();
                 var deviceSelector = WiFiDirectDevice.GetDeviceSelector(); 
                 var devices = await DeviceInformation.FindAllAsync(deviceSelector);
+                token.ThrowIfCancellationRequested();
 
-                CurrentStatus = devices != null ? WifiDirectStatus.Disconnected : WifiDirectStatus.NoArdwareSupported;
-                return devices != null;
+                CurrentStatus = devices is not null ? WifiDirectStatus.Disconnected : WifiDirectStatus.NoArdwareSupported;
+                return devices is not null;
                 
             } 
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return false;
+            }
             catch (Exception ex) 
             {
                 CurrentStatus = WifiDirectStatus.NoArdwareSupported;
@@ -98,31 +105,68 @@ namespace WindowsWifiLibrary.Services
             } 
         }
  
-        public async Task StartPublishingAsync(CancellationToken token) 
+        public Task StartPublishingAsync(CancellationToken token)
         { 
-             StopPublisher(); 
- 
-            _publisher = new WiFiDirectAdvertisementPublisher(); 
-            _publisher.Advertisement.ListenStateDiscoverability = WiFiDirectAdvertisementListenStateDiscoverability.Normal; 
-            _publisher.Advertisement.IsAutonomousGroupOwnerEnabled = true; 
- 
-            _listener = new WiFiDirectConnectionListener(); 
-            _listener.ConnectionRequested += OnConnectionRequested;
-            _publisher.Start();
-            PublisherStatus = WifiDirectPublicherStatus.Started;
+            ThrowIfDisposed();
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                lock (_sync)
+                {
+                    StopPublisher();
+                    WiFiDirectAdvertisementPublisher publisher = new();
+                    WiFiDirectConnectionListener listener = new();
+                    listener.ConnectionRequested += OnConnectionRequested;
+                    publisher.Advertisement.ListenStateDiscoverability = WiFiDirectAdvertisementListenStateDiscoverability.Normal;
+                    publisher.Advertisement.IsAutonomousGroupOwnerEnabled = true;
+                    publisher.Start();
+                    _publisher = publisher;
+                    _listener = listener;
+                    PublisherStatus = WifiDirectPublicherStatus.Started;
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                PublisherStatus = WifiDirectPublicherStatus.Closed;
+                ReportError("Erreur de démarrage de la publication Wi-Fi Direct.", ex);
+            }
+
+            return Task.CompletedTask;
         } 
  
-        public async Task StartSubscribingAsync(CancellationToken token) 
+        public Task StartSubscribingAsync(CancellationToken token)
         {
-            StopWatcher();
-            string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint);
-            _deviceWatcher = DeviceInformation.CreateWatcher(deviceSelector);
-            _deviceWatcher.EnumerationCompleted += _deviceWatcher_EnumerationCompleted;
-            _deviceWatcher.Added += OnDeviceAdded;
-            _deviceWatcher.Updated += OnDeviceUpdated; 
-            _deviceWatcher.Removed += OnDeviceRemoved;
-            _deviceWatcher.Start();
-            WatcherStatus= WifiDirectWatcherStatus.Started;
+            ThrowIfDisposed();
+            token.ThrowIfCancellationRequested();
+            try
+            {
+                lock (_sync)
+                {
+                    StopWatcher();
+                    string deviceSelector = WiFiDirectDevice.GetDeviceSelector(WiFiDirectDeviceSelectorType.AssociationEndpoint);
+                    DeviceWatcher watcher = DeviceInformation.CreateWatcher(deviceSelector);
+                    watcher.EnumerationCompleted += _deviceWatcher_EnumerationCompleted;
+                    watcher.Added += OnDeviceAdded;
+                    watcher.Updated += OnDeviceUpdated;
+                    watcher.Removed += OnDeviceRemoved;
+                    watcher.Start();
+                    _deviceWatcher = watcher;
+                    WatcherStatus = WifiDirectWatcherStatus.Started;
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                WatcherStatus = WifiDirectWatcherStatus.Closed;
+                ReportError("Erreur de démarrage de la découverte Wi-Fi Direct.", ex);
+            }
+
+            return Task.CompletedTask;
         }
 
         private void _deviceWatcher_EnumerationCompleted(DeviceWatcher sender, object args)
@@ -141,52 +185,51 @@ namespace WindowsWifiLibrary.Services
 
         public bool DisconnectToPeer(ref WifiDirectPeer? peer,CancellationToken token)
         {
-            foreach (var device in _connectedDevices.ToList())
+            if (token.IsCancellationRequested || peer is null)
             {
-                if (token.IsCancellationRequested)
-                {
-                     
-                    return false; 
-                }
-                if (device.DeviceId == peer?.Id)
-                {
-                    device.Dispose();
-                    peer = null;
-                    return true;
-                }
+                return false;
             }
-            peer = null;
-            return false;
 
+            bool disconnected = DisconnectToPeer(peer, token);
+            peer = null;
+            return disconnected;
         }
         public bool DisconnectToPeer(WifiDirectPeer peer, CancellationToken token)
         {
-            foreach (var device in _connectedDevices.ToList())
+            if (token.IsCancellationRequested)
             {
-                if (token.IsCancellationRequested)
+                return false;
+            }
+
+            lock (_sync)
+            {
+                WiFiDirectDevice? device = _connectedDevices.FirstOrDefault(item => item.DeviceId == peer.Id);
+                if (device is null)
                 {
                     return false;
                 }
-                if (device.DeviceId == peer?.Id)
-                {
-                    _connectedDevices.Remove(device);
-                    device.Dispose();
 
-                    if (_connectedDevices.Count == 0)
-                    {
-                        CurrentStatus = WifiDirectStatus.Disconnected;
-                        _ = StartPublishingAsync(default);
-                    }
-                    return true;
-                }
+                _connectedDevices.Remove(device);
+                device.ConnectionStatusChanged -= OnDeviceConnectionStatusChanged;
+                device.Dispose();
             }
-            return false;
+
+            if (_connectedDevices.Count == 0)
+            {
+                CurrentStatus = WifiDirectStatus.Disconnected;
+                _ = StartPublishingAsync(CancellationToken.None);
+            }
+
+            return true;
         }
         public async Task<bool> ConnectToPeerAsync(WifiDirectPeer peer,CancellationToken token) 
         {
+            ThrowIfDisposed();
             try
             { 
+                token.ThrowIfCancellationRequested();
                 WiFiDirectDevice wfdDevice = await WiFiDirectDevice.FromIdAsync(peer.Id); 
+                token.ThrowIfCancellationRequested();
                 if (wfdDevice != null) 
                 { 
                     HandleSuccessfulConnection(wfdDevice,true);
@@ -198,6 +241,10 @@ namespace WindowsWifiLibrary.Services
                     return false;
                 } 
             } 
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return false;
+            }
             catch (Exception ex) 
             { 
                 ReportError($"Erreur de connexion : {ex.Message}");
@@ -207,8 +254,13 @@ namespace WindowsWifiLibrary.Services
  
         private void OnConnectionRequested(WiFiDirectConnectionListener sender, WiFiDirectConnectionRequestedEventArgs args) 
         { 
+            if (_disposed)
+            {
+                return;
+            }
+
             var request = args.GetConnectionRequest(); 
-            string token = Guid.NewGuid().ToString(); 
+            string token = Guid.NewGuid().ToString("N");
  
             _pendingInvitations.TryAdd(token, request); 
  
@@ -221,6 +273,7 @@ namespace WindowsWifiLibrary.Services
  
         public async Task<bool> AcceptInvitationAsync(string token) 
         { 
+            ThrowIfDisposed();
             if (_pendingInvitations.TryRemove(token, out var request)) 
             { 
                 try 
@@ -238,6 +291,7 @@ namespace WindowsWifiLibrary.Services
                 } 
                 catch (Exception ex) 
                 { 
+                    request.Dispose();
                     ReportError($"Erreur d'acceptation : {ex.Message}",ex); 
                 } 
             } 
@@ -258,7 +312,16 @@ namespace WindowsWifiLibrary.Services
         }
         private void HandleSuccessfulConnection(WiFiDirectDevice wfdDevice,bool ModeServerOrClient = false) 
         { 
-            _connectedDevices.Add(wfdDevice);
+            lock (_sync)
+            {
+                if (_connectedDevices.Any(device => device.DeviceId == wfdDevice.DeviceId))
+                {
+                    wfdDevice.Dispose();
+                    return;
+                }
+
+                _connectedDevices.Add(wfdDevice);
+            }
             wfdDevice.ConnectionStatusChanged += OnDeviceConnectionStatusChanged; 
  
             var endpointPairs = wfdDevice.GetConnectionEndpointPairs(); 
@@ -285,14 +348,23 @@ namespace WindowsWifiLibrary.Services
             if (sender.ConnectionStatus == WiFiDirectConnectionStatus.Disconnected) 
             { 
                 sender.ConnectionStatusChanged -= OnDeviceConnectionStatusChanged; 
-                _connectedDevices.Remove(sender); 
+                lock (_sync)
+                {
+                    _connectedDevices.Remove(sender);
+                }
                 sender.Dispose(); 
  
                 ConnectionClosed?.Invoke(this,new(new(sender.DeviceId,"Appareil deconnecté"))); 
-                if(_connectedDevices.Count == 0)
+                bool noConnectedDevices;
+                lock (_sync)
+                {
+                    noConnectedDevices = _connectedDevices.Count == 0;
+                }
+
+                if(noConnectedDevices)
                 {
                     CurrentStatus = WifiDirectStatus.Disconnected;
-                    _ = StartPublishingAsync(default);
+                    _ = StartPublishingAsync(CancellationToken.None);
                 }
             }
         }
@@ -323,16 +395,25 @@ namespace WindowsWifiLibrary.Services
  
         public void Stop() 
         { 
-            StopPublisher(); 
-            StopWatcher(); 
-             
-            foreach (var device in _connectedDevices.ToList()) 
+            lock (_sync)
             {
-                device.Dispose();
+                StopPublisher();
+                StopWatcher();
+
+                foreach (var device in _connectedDevices)
+                {
+                    device.ConnectionStatusChanged -= OnDeviceConnectionStatusChanged;
+                    device.Dispose();
+                }
+                _connectedDevices.Clear();
+
+                foreach (var invitation in _pendingInvitations)
+                {
+                    invitation.Value.Dispose();
+                }
+                _pendingInvitations.Clear();
             }
-            _connectedDevices.Clear(); 
-            _pendingInvitations.Clear(); 
- 
+
             CurrentStatus = WifiDirectStatus.Closed; 
         } 
  
@@ -355,6 +436,10 @@ namespace WindowsWifiLibrary.Services
         {
             if (_deviceWatcher != null) 
             {
+                _deviceWatcher.EnumerationCompleted -= _deviceWatcher_EnumerationCompleted;
+                _deviceWatcher.Added -= OnDeviceAdded;
+                _deviceWatcher.Updated -= OnDeviceUpdated;
+                _deviceWatcher.Removed -= OnDeviceRemoved;
                 _deviceWatcher.Stop();
                 _deviceWatcher = null;
             }
@@ -368,6 +453,12 @@ namespace WindowsWifiLibrary.Services
 
         public void Dispose()
         {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
             Stop();
         }
 
@@ -379,14 +470,22 @@ namespace WindowsWifiLibrary.Services
 
         public bool IsConnectToPeer(WifiDirectPeer target)
         {
-            foreach(var peer in _connectedDevices)
+            lock (_sync)
             {
-                if(peer.DeviceId == target.Id)
+                foreach(var peer in _connectedDevices)
                 {
-                    return true;
+                    if(peer.DeviceId == target.Id)
+                    {
+                        return true;
+                    }
                 }
             }
             return false;
+        }
+
+        private void ThrowIfDisposed()
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
         }
     }
 }
