@@ -38,6 +38,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         public event Action? CounterClientChange;
         public event Action? FileServerChange;
         public event Action? FileClientChange;
+        private Task? _serverTask;
+        private Task? _clientTask;
 
         internal void Stop()
         {
@@ -55,13 +57,20 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         private void ServerClient_FileChange() => FileClientChange?.Invoke();
         private void ServerInstance_FileChange() => FileServerChange?.Invoke();
 
-        internal async Task SendFilesAsync(IEnumerable<FileI> pendingFiles, CancellationToken token)
+        internal Task SendFilesAsync(IEnumerable<FileI> pendingFiles, CancellationToken token)
         {
+            token.ThrowIfCancellationRequested();
             List<string> f = [.. from e in pendingFiles select e.PathFile];
-            ServerInstance?.Add(f);
+            if (ServerInstance is null)
+            {
+                throw new InvalidOperationException("Le service TCP n'est pas démarré.");
+            }
+
+            ServerInstance.Add(f);
+            return Task.CompletedTask;
         }
 
-        internal async Task Start(WifiDirectConnectionEventArgs e, CancellationToken token)
+        internal void Start(WifiDirectConnectionEventArgs e, CancellationToken token)
         {
             Stop();
             ServerInstance = new(e.ServerMode);
@@ -76,13 +85,13 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
             if (e.ServerMode)
             {
-                _ = ServerInstance.StartConnection(token);
-                _ = ClientInstance.StartConnection(token);
+                _serverTask = ServerInstance.StartConnection(token);
+                _clientTask = ClientInstance.StartConnection(token);
             }
             else
             {
-                _ = ClientInstance.StartConnection(token);
-                _ = ServerInstance.StartConnection(token);
+                _clientTask = ClientInstance.StartConnection(token);
+                _serverTask = ServerInstance.StartConnection(token);
             }
         }
     }
@@ -223,6 +232,11 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private CancellationTokenSource? _ctsWatcher;
     private CancellationTokenSource? _ctsTransfert;
+    private readonly SemaphoreSlim _transferGate = new(1, 1);
+    private readonly SemaphoreSlim _networkStartGate = new(1, 1);
+    private TaskCompletionSource<bool>? _incomingTransferDecision;
+    private bool _isTransferActive;
+    private bool _disposed;
     public bool Accept { get; private set; }
     private CancellationTokenSource? _ctsConnection;
 
@@ -266,13 +280,13 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         OpenFileCommand = new RelayCommand(param => OpenFile(param as FileI), param => param is FileI);
         PlayThisCommand = new RelayCommand(param => PlayFile(param as FileI), param => param is FileI);
         DeleteItemCommand = new RelayCommand(param => DeleteItem(param as FileI), param => param is FileI);
-        ConnectAndSendCommand = new RelayCommand(async param => await ConnectAndSendAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
-        ConnectCommand = new RelayCommand(async param => await ConnectAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
-        SendCommand = new RelayCommand(async param => await SendAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
+        ConnectAndSendCommand = new RelayCommand(async param => await ConnectAndSendAsync(param as WifiDirectPeer), CanStartPeerOperation);
+        ConnectCommand = new RelayCommand(async param => await ConnectAsync(param as WifiDirectPeer), CanStartPeerOperation);
+        SendCommand = new RelayCommand(async param => await SendAsync(param as WifiDirectPeer), CanStartPeerOperation);
         DisconnectCommand = new RelayCommand(async param => await DisconnectAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
         AcceptTransferCommand = new RelayCommand(async _ => await AcceptIncomingTransferAsync(), _ => IncomingTransferSession != null);
         RejectTransferCommand = new RelayCommand(_ => RejectIncomingTransfer(), _ => IncomingTransferSession != null);
-        CancelTransferCommand = new RelayCommand(_ => CancelActiveTransfert());
+        CancelTransferCommand = new RelayCommand(_ => CancelActiveTransfert(), _ => _isTransferActive || IncomingTransferSession != null);
         OpenDownloadFolderCommand = new RelayCommand(_ => OpenDownloadFolder(), _ => !string.IsNullOrWhiteSpace(DownloadFolder));
         ClearTransferHistoryCommand = new RelayCommand(_ => ClearTransferHistory(), _ => RecentTransfers.Count > 0);
 
@@ -285,20 +299,55 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task<bool> ServerClientInstance_TransfertRequest(InfoMetas arg)
     {
+        if (_disposed || arg.Metas is null || !arg.Metas.Any())
+        {
+            return false;
+        }
+
+        var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (Interlocked.CompareExchange(ref _incomingTransferDecision, decision, null) is not null)
+        {
+            return false;
+        }
+
         Accept = false;
         _dispatcherQueue.TryEnqueue(() =>
         {
             IncomingTransferSession = arg;
             ProgressText = $"Réception de {arg.Metas.Count()} élément(s)";
+            RaiseTransferCommandStates();
         });
 
-        while (!Accept && IncomingTransferSession != null)
+        try
         {
-            await Task.Delay(3000);
+            return await decision.Task.WaitAsync(_ctsTransfert?.Token ?? CancellationToken.None);
         }
-        bool response = Accept;
-        Accept = false;
-        return response;
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _incomingTransferDecision, null, decision);
+            _dispatcherQueue.TryEnqueue(() =>
+            {
+                Accept = false;
+                ClearTransferRequest();
+                RaiseTransferCommandStates();
+            });
+        }
+    }
+
+    private bool CanStartPeerOperation(object? parameter) => parameter is WifiDirectPeer && !_isTransferActive && !_disposed;
+
+    private void RaiseTransferCommandStates()
+    {
+        ((RelayCommand)ConnectAndSendCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)ConnectCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)CancelTransferCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)AcceptTransferCommand).RaiseCanExecuteChanged();
+        ((RelayCommand)RejectTransferCommand).RaiseCanExecuteChanged();
     }
 
     private async Task DisconnectAsync(WifiDirectPeer? wifiDirectPeer)
@@ -338,8 +387,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void _wifiService_PublicherStatusChanged(object? sender, WifiDirectPublicherStatusEventArgs e) 
     { }
-    private void ServerInstance_CounterChanged() => CounterServerChange();
-    private void ClientInstance_CounterChanged() => CounterClientChange();
+    private void ServerInstance_CounterChanged() => _dispatcherQueue.TryEnqueue(CounterServerChange);
+    private void ClientInstance_CounterChanged() => _dispatcherQueue.TryEnqueue(CounterClientChange);
 
     private async Task InitializeAsync(bool reload = false)
     {
@@ -415,57 +464,113 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task ConnectAndSendAsync(WifiDirectPeer? target)
     {
-        await ConnectAsync(target);
+        if (!await ConnectAsync(target))
+        {
+            return;
+        }
+
         await SendAsync(target);
     }
 
-    private async Task ConnectAsync(WifiDirectPeer? target)
+    private async Task<bool> ConnectAsync(WifiDirectPeer? target)
     {
-        if (target == null) return;
+        if (target == null || _disposed || _isTransferActive) return false;
         try
         {
             _ctsConnection?.Cancel();
+            _ctsConnection?.Dispose();
             SelectedPeerName = target.Name;
             PeerConnecte = target;
             _ctsConnection = new CancellationTokenSource();
-            await _wifiService.ConnectToPeerAsync(target, _ctsConnection.Token);
+            bool connected = await _wifiService.ConnectToPeerAsync(target, _ctsConnection.Token);
+            if (!connected)
+            {
+                MessageText = "La connexion à l’appareil a échoué.";
+            }
+
+            return connected;
         }
-        catch (Exception) { }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            MessageText = $"Connexion impossible : {ex.Message}";
+            return false;
+        }
     }
 
     private async Task SendAsync(WifiDirectPeer? target)
     {
-        if (target == null) return;
+        if (target == null || _disposed) return;
         if (PendingFiles.Count == 0)
         {
             MessageText = "Veuillez d'abord ajouter des éléments à envoyer.";
             return;
         }
 
-        if (_wifiService.IsConnectToPeer(target))
-        {
-            if (_ctsTransfert == null || !_ctsTransfert.IsCancellationRequested) _ctsTransfert = new();
-            _ = ServerClientInstance.SendFilesAsync(PendingFiles, _ctsTransfert.Token);
-        }
-        else
+        if (!_wifiService.IsConnectToPeer(target))
         {
             MessageText = "Veuillez d'abord vous connecter.";
+            return;
+        }
+
+        if (!await _transferGate.WaitAsync(0))
+        {
+            MessageText = "Un transfert est déjà en cours.";
+            return;
+        }
+
+        _isTransferActive = true;
+        RaiseTransferCommandStates();
+        try
+        {
+            _ctsTransfert?.Cancel();
+            _ctsTransfert?.Dispose();
+            _ctsTransfert = new CancellationTokenSource();
+            await ServerClientInstance.SendFilesAsync(PendingFiles.ToArray(), _ctsTransfert.Token);
+            MessageText = "Transfert prêt à démarrer.";
+        }
+        catch (OperationCanceledException)
+        {
+            MessageText = "Transfert annulé.";
+        }
+        catch (Exception ex)
+        {
+            MessageText = $"Impossible de démarrer le transfert : {ex.Message}";
+        }
+        finally
+        {
+            _isTransferActive = false;
+            _transferGate.Release();
+            RaiseTransferCommandStates();
         }
     }
 
     private void WifiService_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e)
     {
-        _dispatcherQueue.TryEnqueue(async () =>
+        _dispatcherQueue.TryEnqueue(() => _ = StartNetworkSessionAsync(e));
+    }
+
+    private async Task StartNetworkSessionAsync(WifiDirectConnectionEventArgs e)
+    {
+        if (_disposed || !await _networkStartGate.WaitAsync(0))
+        {
+            return;
+        }
+
+        try
         {
             _ctsTransfert?.Cancel();
-            await Task.Delay(100);
+            _ctsTransfert?.Dispose();
             _ctsTransfert = new CancellationTokenSource();
-            try
-            {
-                await ServerClientInstance.Start(e, _ctsTransfert.Token);
-            }
-            catch (Exception) { }
-        });
+            ServerClientInstance.Start(e, _ctsTransfert.Token);
+        }
+        finally
+        {
+            _networkStartGate.Release();
+        }
     }
 
     private async Task AcceptIncomingTransferAsync()
@@ -473,19 +578,26 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         if (IncomingTransferSession == null) return;
         Accept = true;
         AppendTransferHistory(PeerConnecte?.Name ?? "Distant", "Réception 📥", "debuté", DownloadFolder, IncomingTransferSession.Length);
+        _incomingTransferDecision?.TrySetResult(true);
+        RaiseTransferCommandStates();
     }
 
     private void RejectIncomingTransfer()
     {
         if (IncomingTransferSession == null) return;
         AppendTransferHistory(PeerConnecte?.Name ?? "Distant", "Réception 📥", "Refusé", DownloadFolder, IncomingTransferSession.Length);
+        Accept = false;
+        _incomingTransferDecision?.TrySetResult(false);
         ClearTransferRequest();
+        RaiseTransferCommandStates();
     }
 
     private void CancelActiveTransfert()
     {
         _ctsTransfert?.Cancel();
+        _incomingTransferDecision?.TrySetResult(false);
         ClearTransferRequest();
+        RaiseTransferCommandStates();
     }
 
     private void ClearTransferRequest() => IncomingTransferSession = null;
@@ -575,7 +687,16 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             ? _wifiService.AcceptInvitationAsync(invitation.Token)
             : _wifiService.RejectInvitationAsync(invitation.Token);
 
-    private void WifiService_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e) => ServerClientInstance.Stop();
+    private void WifiService_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e)
+    {
+        ServerClientInstance.Stop();
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            PeerConnecte = null;
+            MessageText = "La connexion Wi‑Fi Direct a été fermée.";
+            RaiseTransferCommandStates();
+        });
+    }
 
     private void AppendTransferHistory(string user, string type, string status, string path, long size)
     {
@@ -599,6 +720,13 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _incomingTransferDecision?.TrySetResult(false);
         _ctsWatcher?.Cancel();
         _ctsTransfert?.Cancel();
         _ctsConnection?.Cancel();
@@ -607,6 +735,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _ctsWatcher?.Dispose();
         _ctsTransfert?.Dispose();
         _ctsConnection?.Dispose();
+        _transferGate.Dispose();
+        _networkStartGate.Dispose();
     }
 
     private class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand
