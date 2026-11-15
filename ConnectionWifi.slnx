@@ -15,5 +15,4 @@
     <Deploy />
   </Project>
   <Project Path="WindowsWifiLibrary/WindowsWifiLibrary.csproj" />
-  <Project Path="WindowsWifiWpf/WindowsWifiWpf.csproj" />
 </Solution>

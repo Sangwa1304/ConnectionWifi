@@ -12,7 +12,7 @@
   <Identity
     Name="24023dd8-7fa0-4a4b-bdab-85ee2fd2a4cf"
     Publisher="CN=Glory San"
-    Version="1.0.3.0" />
+    Version="1.0.6.0" />
 
   <mp:PhoneIdentity PhoneProductId="24023dd8-7fa0-4a4b-bdab-85ee2fd2a4cf" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

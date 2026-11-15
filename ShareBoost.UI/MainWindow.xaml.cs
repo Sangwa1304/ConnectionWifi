@@ -71,7 +71,9 @@ public sealed partial class MainWindow : Window
         if (!e.DataView.Contains(StandardDataFormats.StorageItems)) return;
 
         IReadOnlyList<IStorageItem> items = await e.DataView.GetStorageItemsAsync();
-        ViewModel.AddFiles(items.OfType<StorageFile>().Select(file => file.Path));
+        ViewModel.AddFiles(items
+            .Where(item => !string.IsNullOrWhiteSpace(item.Path))
+            .Select(item => item.Path));
     }
 
     private async void OnInvitationRequested(object? sender, WifiDirectInvitationEventArgs e)
@@ -88,16 +90,5 @@ public sealed partial class MainWindow : Window
 
         var result = await dialog.ShowAsync();
         await ViewModel.RespondToInvitationAsync(e, result == ContentDialogResult.Primary);
-    }
-
-    private async void OpenFileButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
-    {
-        var picker = new FileOpenPicker((sender as Button).XamlRoot.ContentIslandEnvironment.AppWindowId);
-        var file = await picker.PickSingleFileAsync();
-        if (file == null)
-            return;
-
-        var mediaSource = MediaSource.CreateFromStorageFile(await StorageFile.GetFileFromPathAsync(file.Path));
-        //Player1.Source = mediaSource;
     }
 }

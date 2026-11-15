@@ -2,6 +2,7 @@ using LibraryMI.Models;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using ServiceTcpChared;
 using System;
@@ -113,7 +114,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public Visibility ConnectedVisibilityOff => !GetConnecteVisibility() ? Visibility.Visible : Visibility.Collapsed;
     public Visibility StopSubscribeButtonVisibily => !GetStartVisibility() ? Visibility.Visible : Visibility.Collapsed;
     public Visibility StartSubscribeButtonVisibily => GetStartVisibility() ? Visibility.Visible : Visibility.Collapsed;
-    public Visibility InformationWifiVisibily => DiscoveredDevices.Count != 0? Visibility.Collapsed : Visibility.Visible;
+    public Visibility InformationWifiVisibily => DiscoveredDevices.Count != 0 && !NoHardwardSuported? Visibility.Collapsed : Visibility.Visible;
+    public Visibility InformationWifiOffVisibily => PageReloadVisible;
     private bool GetConnecteVisibility() => _wifiService?.CurrentStatus == WifiDirectStatus.Connected;
     private bool GetStartVisibility() => _wifiService?.WatcherStatus == WifiDirectWatcherStatus.Closed;
 
@@ -131,26 +133,22 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public string MessageText { get => _messageText; set { _messageText = value; OnPropertyChanged(nameof(MessageText)); } }
     public string ProgressText { get => _progressText; set { _progressText = value; OnPropertyChanged(nameof(ProgressText)); } }
     public string CurrentStateDisplayText => _wifiService.CurrentStatus.ToString();
-    public bool isnight = true;
+    public bool isnight = false;
     public SolidColorBrush CurrentStateDisplayColor
     {
         get 
         {
-            
-            if(!isnight)return ColorStatus(nameof(CurrentStateDisplayColor));
-            return ColorStatus(nameof(CurrentStateDisplayColor),Color.Black);
+            if(isnight)
+            {
+                return ColorStatus(nameof(CurrentStateDisplayColor), Color.Black); 
+            }
+            return ColorStatus(nameof(CurrentStateDisplayColor));
         }
     }
-    public SolidColorBrush ColorBlackBrush = new();
     private SolidColorBrush ColorStatus(string name,Color? color = null)
     {
         var r =color?? GetColor();
-        ColorBlackBrush = new(Windows.UI.Color.FromArgb(r.A, r.R, r.G, r.B));
-        if(!isnight)
-        {
-            _ = WaitAnimate(name);
-        }
-        isnight = color != null;
+        _ = WaitAnimate(name);
         return new(Windows.UI.Color.FromArgb(r.A, r.R, r.G, r.B));
     }
 
@@ -167,7 +165,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     }
     private async Task WaitAnimate(string name)
     {
-        await Task.Delay(1500);
+        await Task.Delay(1000);
+        isnight = !isnight;
         OnPropertyChanged(name);
     }
 
@@ -349,7 +348,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         ((RelayCommand)AcceptTransferCommand).RaiseCanExecuteChanged();
         ((RelayCommand)RejectTransferCommand).RaiseCanExecuteChanged();
     }
-
+    
     private async Task DisconnectAsync(WifiDirectPeer? wifiDirectPeer)
     {
         _wifiService.DisconnectToPeer(ref wifiDirectPeer, default);
@@ -389,17 +388,14 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     { }
     private void ServerInstance_CounterChanged() => _dispatcherQueue.TryEnqueue(CounterServerChange);
     private void ClientInstance_CounterChanged() => _dispatcherQueue.TryEnqueue(CounterClientChange);
-
+    
     private async Task InitializeAsync(bool reload = false)
     {
         _ctsWatcher ??= new();
+
+        await _wifiService.InitializeAsync(_ctsWatcher.Token);
         if (NoHardwardSuported)
         {
-            if (reload)
-            {
-                await _wifiService.InitializeAsync(_ctsWatcher.Token);
-                await InitializeAsync();
-            }
             return;
         }
         _ = _wifiService.StartPublisherSubscribingAsync(_ctsWatcher.Token);
@@ -618,23 +614,27 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
-            if (file?.IsPlayer?? false) 
+            if (file?.IsPlayer ?? false)
             {
-                PlayFile(file);
+                if(file?.IsMusic?? false)
+                    PlayFile(file);
+                else PlayFile(file,false);
             }
-            else 
+            else
+            {
                 Process.Start(new ProcessStartInfo { FileName = file?.PathFile, UseShellExecute = true });
+            }
         }
         catch (Exception)
         {
         }
     }
     CancellationTokenSource _ctsPlayer;
-    private void PlayFile(FileI? file)
+    private void PlayFile(FileI? file,bool Control = true)
     {
         if(_ctsPlayer == null || _ctsPlayer.IsCancellationRequested)
             _ctsPlayer = new CancellationTokenSource();
-        _=PlayFile(file?.PathFile ?? "",_ctsPlayer.Token);
+        _=PlayFile(file?.PathFile ?? "",_ctsPlayer.Token, Control);
 
     }
 
@@ -653,7 +653,6 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(CurrentStateDisplayText));
             OnPropertyChanged(nameof(ConnectedVisibilityOff));
             OnPropertyChanged(nameof(ConnectedVisibilityOn));
-            OnPropertyChanged(nameof(CurrentStateDisplayColor));
         });
 
     private void WifiService_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) =>
@@ -730,6 +729,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _ctsWatcher?.Cancel();
         _ctsTransfert?.Cancel();
         _ctsConnection?.Cancel();
+        _ctsPlayer?.Cancel();
         ServerClientInstance.Stop();
         _wifiService.Stop();
         _ctsWatcher?.Dispose();
@@ -749,37 +749,70 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
     }
     private Window? ChildWindow = null;
-    private MediaPlayerElement? Player = null;
-    private bool isClose = true;
-    public async Task PlayFile(string path,CancellationToken token)
+    public MediaSource _PlayerSource = default;
+    public MediaSource PlayerSource
     {
-        bool active = ChildWindow == null;
-        if (string.IsNullOrEmpty(path)) return;
-        var mediaSource = MediaSource.CreateFromStorageFile(await StorageFile.GetFileFromPathAsync(path));
+        get => _PlayerSource;
 
-        Player = new MediaPlayerElement()
+        set
         {
-            Source = mediaSource,
-            AutoPlay = true,
-            AreTransportControlsEnabled = true
-        };
-        // Ensure you close the child window before closing the parent window to avoid application crash.
-        ChildWindow = isClose? new Window()
+            _PlayerSource = value;
+
+            OnPropertyChanged(nameof(PlayerSource));
+        }
+    }
+    public bool _OpenTeacher = false;
+    public bool OpenTeacher
+    {
+        get => _OpenTeacher;
+
+        set
+        {
+            _OpenTeacher = value;
+
+            OnPropertyChanged(nameof(OpenTeacher));
+        }
+    }
+    public event Action ShowTeach;
+    public void PopIsClose()
+    {
+        PlayerSource?.Dispose();
+    }
+    public async Task PlayFile(string path, CancellationToken token, bool control = true)
+    {
+
+        PlayerSource?.Dispose();
+        if (string.IsNullOrEmpty(path)) return;
+        PlayerSource = MediaSource.CreateFromStorageFile(await StorageFile.GetFileFromPathAsync(path));
+        
+        if(ChildWindow != null) 
+        {
+            if (control) ChildWindow?.AppWindow.ResizeClient(new SizeInt32(400, 100));
+            else ChildWindow?.AppWindow.ResizeClient(new SizeInt32(500, 450));
+            ((ChildWindow.Content as Page)?.Content as MediaPlayerElement)?.AreTransportControlsEnabled = control;
+            ((ChildWindow.Content as Page)?.Content as MediaPlayerElement)?.Source = PlayerSource;
+            return;
+        }
+
+        ChildWindow = new Window()
         {
             ExtendsContentIntoTitleBar = true,
             SystemBackdrop = new MicaBackdrop(),
             Content = new Page()
             {
-                Content = Player
+                Content = new MediaPlayerElement()
+                {
+                    Source = PlayerSource,
+                    AutoPlay = true,
+                    AreTransportControlsEnabled = control
+                }
             }
-        } : ChildWindow;
-        if (isClose)
-        {
-            isClose = false;
-            ChildWindow?.AppWindow.ResizeClient(new SizeInt32(400,100));
-            ChildWindow?.Activate();
-            ChildWindow?.Closed += (_, _) => { isClose = true; Player = null; };
-            token.Register(() => { ChildWindow?.Close(); ChildWindow = null; Player = null; });
-        }
+        };
+        if (control)ChildWindow?.AppWindow.ResizeClient(new SizeInt32(400,100));
+        else ChildWindow?.AppWindow.ResizeClient(new SizeInt32(500, 450));
+        ChildWindow?.Activate();
+        ChildWindow?.Closed += (_, _) => { ChildWindow = null; PlayerSource?.Dispose(); };
+        token.Register(() => PlayerSource?.Dispose());
+        token.Register(() => { ChildWindow?.Close(); ChildWindow = null; });
     }
 }

@@ -8,6 +8,8 @@ namespace LibraryMI.Models;
 public class FileI : IEquatable<FileI?>
 {
     public bool IsPlayer => FileIs == Types.Music || FileIs == Types.Video;
+    public bool IsMusic => FileIs == Types.Music;
+    public bool IsVideo => FileIs == Types.Video;
     public readonly Types FileIs = Types.Others;
     public string PathFile { get; }
     public string Name { get; }
@@ -27,9 +29,13 @@ public class FileI : IEquatable<FileI?>
             var inf = new FileInfo(path);
             PathFile = path;
             Name = inf.Name;
-            if(musicsExtention.Contains(Path.GetExtension(path)))
+            if(musicExtention.Contains(Path.GetExtension(path)))
             {
                 FileIs = Types.Music;
+            }
+            else if (VideoExtention.Contains(Path.GetExtension(path)))
+            {
+                FileIs = Types.Video;
             }
             if (Directory.Exists(path)) 
             { 
@@ -73,10 +79,13 @@ public class FileI : IEquatable<FileI?>
     {
         return HashCode.Combine(PathFile, Name, Size);
     }
-    public string[] musicsExtention =
+    public string[] musicExtention =
         [
-        ".mp3",
-        ".mov"
+        ".mp3"
+        ];
+    public string[] VideoExtention =
+        [
+        ".mp4"
         ];
     public static bool operator ==(FileI? left, FileI? right)
     {

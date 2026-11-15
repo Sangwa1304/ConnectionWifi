@@ -8,7 +8,8 @@
     xmlns:local="using:ShareBoost.UI"
     xmlns:viewmodels="using:ShareBoost.UI.ViewModels"
     mc:Ignorable="d"
-    Title="ShareBoost">
+    Title="ShareBoost"
+    ExtendsContentIntoTitleBar="True">
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>
@@ -55,7 +56,9 @@
             </Style>
         </Grid.Resources>
 
-        <Grid Background="#050b1a8c" Padding="12">
+        <Grid
+            Background="#050b1a8c"
+            Padding="12">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="2*" />
@@ -66,11 +69,10 @@
             <!-- EN-TÊTE : STATUT GLOBAL -->
             <Border
                 Grid.Row="0"
-                Margin="0,0,0,15"
                 Padding="5"
                 Background="#050b1a8c"
                 BorderBrush="#8f8e8a8f"
-                BorderThickness="1"
+                BorderThickness="0"
                 CornerRadius="10">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -93,36 +95,42 @@
                             Foreground="#64748B" 
                             VerticalAlignment="Center" 
                             Text="Etat |" />
-                    </StackPanel>
-
-                    <StackPanel 
-                        Grid.Column="1" 
-                        Margin="10,0,2,0"
-                        Orientation="Horizontal" 
-                        VerticalAlignment="Center">
-                        
-                        <TextBlock  
-                            HorizontalAlignment="Right"
+                        <TextBlock 
+                            HorizontalAlignment="Left"
                             FontSize="12" 
                             Foreground="#64748B" 
                             Margin="1,0"
+                            Grid.Column="1"
+                            VerticalAlignment="Center"
                             Text=" Dossier :  " />
-                        <TextBlock 
-                            FontSize="12" 
-                            MaxWidth="200" 
-                            FontWeight="SemiBold" 
-                            Foreground="#b4c0cd" 
-                            Text="{Binding DownloadFolderDisplay}" 
-                            TextTrimming="CharacterEllipsis" />
                     </StackPanel>
+                    <StackPanel
+                        VerticalAlignment="Center"
+                        Grid.Column="1">
+                        <Button
+                            Padding="0"
+                            Command="{Binding OpenDownloadFolderCommand}"
+                            Margin="2,0,0,0"
+                            BorderBrush="Transparent"
+                            Background="Transparent"
+                            AutomationProperties.Name="ouvrir le dossier de réception">
+                            <TextBlock
+                                FontSize="12"
+                                FontWeight="Bold" 
+                                Foreground="#b4c0cd" 
+                                Text="{Binding DownloadFolderDisplay}" 
+                                TextTrimming="CharacterEllipsis"/>
+                        </Button>
 
+                    </StackPanel>
                     <Button
                         Grid.Column="2"
-                        Margin="2,0,0,0"
                         Padding="10,4"
+                        Margin="2,0,0,0"
                         Background="#1E293B"
                         Command="{Binding ChangeFolderCommand}"
                         Content="Changer"
+                        AutomationProperties.Name="Changer le dossier de réception"
                         FontSize="11" />
                 </Grid>
             </Border>
@@ -152,7 +160,8 @@
                             Text="⚡" />
                         <TextBlock
                             HorizontalAlignment="Center" 
-                            FontSize="16" FontWeight="Bold" 
+                            FontSize="16" 
+                            FontWeight="Bold" 
                             Foreground="#F1F5F9" 
                             Text="Glissez-déposez vos fichiers ici" />
                         <TextBlock
@@ -192,6 +201,10 @@
                                 FontWeight="Bold" 
                                 Foreground="#94A3B8" 
                                 Text="Fichiers prêts à l'envoi" />
+                            <TextBlock
+                                Margin="0,22,0,0"
+                                Foreground="#64748B"
+                                Text="{Binding DropStatusText}" />
                             <StackPanel
                                 Visibility="Collapsed"
                                 Padding="1"
@@ -215,7 +228,8 @@
                                     Margin="8,0"
                                     Background="#e925e3b3"
                                     Command="{Binding BrowseCommand}" 
-                                    Foreground="White" >
+                                    Foreground="White"
+                                    AutomationProperties.Name="Ajouter des éléments" >
                                     <FontIcon Glyph="&#xE723;&#xE710;" />
                                 </Button>
                                 <Button 
@@ -224,7 +238,8 @@
                                     FontWeight="Bold"
                                     Background="#e92525dd" 
                                     Command="{Binding DeleteAllCommand}"
-                                    Foreground="red" >
+                                    Foreground="red"
+                                    AutomationProperties.Name="Supprimer tous les éléments" >
                                     <FontIcon Glyph="&#xE74D;" />
                                 </Button>
                             </StackPanel>
@@ -234,105 +249,105 @@
                             BorderBrush="#334155"
                             BorderThickness="0.5"
                             CornerRadius="8">
-                                <ItemsControl ItemsSource="{Binding PendingFiles}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border 
-                                                    Margin="2,1,6,1" 
-                                                    Padding="2,0.5" 
-                                                    Background="#1E293B"  
-                                                    BorderThickness="1" 
-                                                        CornerRadius="1">
-                                                <Grid>
+                            <ItemsControl ItemsSource="{Binding PendingFiles}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border 
+                                                Margin="2,1,6,1" 
+                                                Padding="2,0.5" 
+                                                Background="#1E293B"  
+                                                BorderThickness="1" 
+                                                CornerRadius="1">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Button 
+                                                    FontSize="20"
+                                                    Foreground="#9e9ebe"
+                                                    FontWeight="SemiLight"
+                                                    VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center"
+                                                    Margin="0,0,4,0"
+                                                    Command="{Binding DataContext.OpenSourceDirectoryCommand, ElementName=LayoutRoot}" 
+                                                    CommandParameter="{Binding}"
+                                                    FontFamily="Segoe Fluent Icons"
+                                                    Padding="0"
+                                                    BorderBrush="Transparent"
+                                                    Background="Transparent"
+                                                    Content="&#xE8DA;"/>
+                                            <Button
+                                                    FontSize="20"
+                                                    Grid.Column="1"       
+                                                    Foreground="#9e9ebe"
+                                                    FontWeight="SemiLight"
+                                                    VerticalAlignment="Center"
+                                                    HorizontalAlignment="Center"
+                                                    Margin="0,0,4,0"
+                                                    BorderBrush="Transparent"
+                                                    Background="Transparent"
+                                                    Command="{Binding DataContext.OpenFileCommand, ElementName=LayoutRoot}" 
+                                                    CommandParameter="{Binding}"
+                                                    FontFamily="Segoe Fluent Icons"
+                                                    Padding="0"
+                                                    Content="&#xE8E5;"/>
+                                            <Grid Grid.Column="2">
                                                     <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="*"/>
                                                     </Grid.ColumnDefinitions>
-                                                    <Button 
-                                                            FontSize="20"
-                                                            Foreground="#9e9ebe"
-                                                            FontWeight="SemiLight"
-                                                            VerticalAlignment="Center"
-                                                            HorizontalAlignment="Center"
-                                                            Margin="0,0,4,0"
-                                                            Command="{Binding DataContext.OpenSourceDirectoryCommand, ElementName=RootGrid}" 
-                                                            CommandParameter="{Binding}"
-                                                            FontFamily="Segoe Fluent Icons"
-                                                            Padding="0"
-                                                            BorderBrush="Transparent"
-                                                            Background="Transparent"
-                                                            Content="&#xE8DA;"/>
-                                                    <Button 
-                                                            FontSize="20"
-                                                            Grid.Column="1"             
-                                                            Foreground="#9e9ebe"
-                                                            FontWeight="SemiLight"
-                                                            VerticalAlignment="Center"
-                                                            HorizontalAlignment="Center"
-                                                            Margin="0,0,4,0"
-                                                            BorderBrush="Transparent"
-                                                            Background="Transparent"
-                                                            Command="{Binding DataContext.OpenFileCommand, ElementName=RootGrid}" 
-                                                            CommandParameter="{Binding}"
-                                                            FontFamily="Segoe Fluent Icons"
-                                                            Padding="0"
-                                                            Content="&#xE8E5;"/>
-                                                    <Grid Grid.Column="2">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                    <StackPanel
-                                                        CanBeScrollAnchor="True"
-                                                            Grid.Column="0"
-                                                            VerticalAlignment="Center"
-                                                        Orientation="Horizontal">
+                                                <StackPanel
+                                                    CanBeScrollAnchor="True"
+                                                        Grid.Column="0"
+                                                        VerticalAlignment="Center"
+                                                    Orientation="Horizontal">
 
-                                                        <!--Button
-                                                            Background="Transparent"
-                                                            BorderBrush="Transparent"
-                                                            HorizontalAlignment="Right"
-                                                            Padding="0"
-                                                            Command="{Binding DataContext.PlayThisCommand, ElementName=RootGrid}" 
-                                                            CommandParameter="{Binding}">
-                                                            <FontIcon Glyph="&#xE768;" />
-                                                        </Button-->
-                                                        <StackPanel 
-                                                                VerticalAlignment="Center">
-                                                            <TextBlock 
-                                                                    Foreground="#e0e6eb"
-                                                                    FontSize="12" 
-                                                                    FontWeight="Light" 
-                                                                    Text="{Binding Name}" />
-                                                            <TextBlock 
-                                                                    Margin="0,2,0,0" 
-                                                                    FontSize="9" 
-                                                                    Foreground="#94A3B9"
-                                                                    Text="{Binding Sizee}" />
-                                                        </StackPanel>
-
+                                                    <!--Button
+                                                        Background="Transparent"
+                                                        BorderBrush="Transparent"
+                                                        HorizontalAlignment="Right"
+                                                        Padding="0"
+                                                        Command="{Binding DataContext.PlayThisCommand, ElementName=LayoutRoot}" 
+                                                        CommandParameter="{Binding}">
+                                                        <FontIcon Glyph="&#xE768;" />
+                                                    </Button-->
+                                                    <StackPanel 
+                                                            VerticalAlignment="Center">
+                                                        <TextBlock 
+                                                                Foreground="#e0e6eb"
+                                                                FontSize="12" 
+                                                                FontWeight="Light" 
+                                                                Text="{Binding Name}" />
+                                                        <TextBlock 
+                                                                Margin="0,2,0,0" 
+                                                                FontSize="9" 
+                                                                Foreground="#94A3B9"
+                                                                Text="{Binding Sizee}" />
                                                     </StackPanel>
-                                                    <Button 
-                                                                FontFamily="Segoe Fluent Icons"
-                                                                Grid.Column="1" 
-                                                                Background="Transparent" 
-                                                                BorderThickness="0"
-                                                                Padding="0"
-                                                                HorizontalAlignment="Right"
-                                                                Margin="12,0"
-                                                                AutomationProperties.Name="Supprimer ce fichier" 
-                                                                Command="{Binding DataContext.DeleteItemCommand, ElementName=RootGrid}" 
-                                                                CommandParameter="{Binding}" 
-                                                                Content="&#xE74D;" 
-                                                                Foreground="Red" />
-                                                    </Grid>
+
+                                                </StackPanel>
+                                                <Button 
+                                                            FontFamily="Segoe Fluent Icons"
+                                                            Grid.Column="1" 
+                                                            Background="Transparent" 
+                                                            BorderThickness="0"
+                                                            Padding="0"
+                                                            HorizontalAlignment="Right"
+                                                            Margin="12,0"
+                                                            AutomationProperties.Name="Supprimer ce fichier" 
+                                                            Command="{Binding DataContext.DeleteItemCommand, ElementName=LayoutRoot}" 
+                                                            CommandParameter="{Binding}" 
+                                                            Content="&#xE74D;" 
+                                                            Foreground="Red" />
                                                 </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </Grid>
                 </Border>
             </Grid>
@@ -396,22 +411,40 @@
                                     Text="Appareils à proximité" />
                                 <TextBlock Margin="0,2,0,0" FontSize="10" Foreground="#64748B" Text="Sélectionnez une cible" />
                             </StackPanel>
-                            <Button HorizontalAlignment="Right" Command="{Binding ScanCommand}" Content="Recherche" Visibility="{Binding StartSubscribeButtonVisibily}" />
-                            <Button 
-                                
+                            <Button HorizontalAlignment="Right" Command="{Binding ScanCommand}" Content="Rechercher" AutomationProperties.Name="Rechercher des appareils" Visibility="{Binding StartSubscribeButtonVisibily}" />
+                            <Button
                                 HorizontalAlignment="Right" 
                                 Foreground="#9e9ebe"
                                 FontFamily="Segoe Fluent Icons"
                                 Command="{Binding RetryCommand}" 
                                 Content="&#xE72C;" 
+                                AutomationProperties.Name="Relancer la recherche d’appareils"
                                 Visibility="{Binding StopSubscribeButtonVisibily}" />
                         </Grid>
-                        <TextBlock
+                        <StackPanel 
                             Grid.Row="1"
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Center"
                             Margin="0,0,0,40"
-                            Text="Wifi"/>
+                            Visibility="{Binding InformationWifiVisibily}" 
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Center">
+                            <TextBlock
+                                FontWeight="Black" 
+                                FontFamily="Corbel"
+                                
+                                Padding="1"
+                                Foreground="#9e9ebe"
+                                FontSize="20"
+                                Text="Aucun Appareil disponible pour l'instant"/>
+                            <TextBlock
+                                FontWeight="Black" 
+                                FontFamily="Corbel"
+                                Foreground="#9e9ebe" 
+                                TextTrimming="CharacterEllipsis"
+                                FontSize="18"
+                               HorizontalAlignment="Center"
+                                Padding="1"
+                                Text="Assurez-vous que l'autre Appareil est visible"/>
+                        </StackPanel>
                         <ScrollViewer 
                             Padding="2"
                             CornerRadius="9"
@@ -445,12 +478,13 @@
                                                         Padding="0"
                                                         FontSize="20"
                                                         Background="Transparent" 
-                                                        Command="{Binding DataContext.ConnectCommand, ElementName=RootGrid}"
+                                                         Command="{Binding DataContext.ConnectCommand, ElementName=LayoutRoot}"
                                                         CommandParameter="{Binding}" 
                                                         BorderThickness="0"
                                                         Foreground="#9e9ebe"
                                                         FontFamily="Segoe Fluent Icons"
                                                         Content="&#xE703;" 
+                                                         AutomationProperties.Name="Se connecter à cet appareil"
                                                         Margin="4,0"/>
                                                     <Button
                                                         BorderThickness="0"
@@ -460,9 +494,10 @@
                                                         Foreground="#9e9ebe"
                                                         Background="Transparent" 
                                                         FontFamily="Segoe Fluent Icons"
-                                                        Command="{Binding DataContext.ConnectAndSendCommand, ElementName=RootGrid}"
+                                                         Command="{Binding DataContext.ConnectAndSendCommand, ElementName=LayoutRoot}"
                                                         CommandParameter="{Binding}"
-                                                        Content="&#xE724;"/>
+                                                         Content="&#xE724;"
+                                                         AutomationProperties.Name="Se connecter et envoyer à cet appareil"/>
                                                 </StackPanel>
                                             </Grid>
                                         </Border>
@@ -504,8 +539,8 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Margin="0,0,5,0" Background="#10B981" Command="{Binding AcceptTransferCommand}" Content="Accepter" Foreground="White" />
-                                <Button Grid.Column="1" Margin="5,0,0,0" Background="#EF4444" Command="{Binding RejectTransferCommand}" Content="Refuser" Foreground="White" />
+                                <Button Grid.Column="0" Margin="0,0,5,0" Background="#10B981" Command="{Binding AcceptTransferCommand}" Content="Accepter" AutomationProperties.Name="Accepter le transfert entrant" Foreground="White" />
+                                <Button Grid.Column="1" Margin="5,0,0,0" Background="#EF4444" Command="{Binding RejectTransferCommand}" Content="Refuser" AutomationProperties.Name="Refuser le transfert entrant" Foreground="White" />
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -527,7 +562,7 @@
                             </Grid.RowDefinitions>
                             <Grid Grid.Row="0" Margin="0,0,0,10">
                                 <TextBlock VerticalAlignment="Center" FontWeight="Bold" Foreground="#94A3B8" Text="Flux récents" />
-                                <Button HorizontalAlignment="Right" Background="Transparent" Command="{Binding ClearTransferHistoryCommand}" Content="Effacer" Foreground="#64748B" />
+                                <Button HorizontalAlignment="Right" Background="Transparent" Command="{Binding ClearTransferHistoryCommand}" Content="Effacer" AutomationProperties.Name="Effacer l’historique des transferts" Foreground="#64748B" />
                             </Grid>
                             <ScrollViewer Grid.Row="1">
                                 <ItemsControl ItemsSource="{Binding RecentTransfers}">
@@ -570,17 +605,52 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock FontSize="11" Foreground="#94A3B8" Text="Pair :" />
+                        <TextBlock FontSize="13" FontWeight="SemiBold" Foreground="#F8FAFC" Text="{Binding SelectedPeerName}" />
                         <TextBlock FontSize="14" FontWeight="Bold" Foreground="#F8FAFC" Text="{Binding MessageText}" />
                         <TextBlock Margin="0,4,0,8" FontSize="12" Foreground="#64748B" Text="{Binding ProgressText}" />
+                        <TextBlock FontSize="11" Foreground="#94A3B8" Text="{Binding FileClient}" />
                         <ProgressBar Height="8" Maximum="100" Minimum="0" Value="{Binding TransferProgress}" />
                     </StackPanel>
-                    <Button Grid.Column="1" Margin="20,0,0,0" Background="#2c0712" Command="{Binding CancelTransferCommand}" Content="Annuler" Foreground="White" />
+                    <Button Grid.Column="1" Margin="20,0,0,0" Background="#2c0712" Command="{Binding CancelTransferCommand}" Content="Annuler" AutomationProperties.Name="Annuler le transfert en cours" Foreground="White" />
                 </Grid>
             </Border>
         </Grid>
         <!-- Page Reload Overlay -->
-        <Border Background="Gray" Opacity="0.85" Visibility="{Binding PageReloadVisible, Converter={StaticResource BoolToVisibility}}">
-            <Button Content="Recharger la page" AutomationProperties.Name="Recharger la page" Command="{Binding ReloadCommand}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+        <Border 
+            Background="Black"
+            Opacity="0.9"
+            Visibility="{Binding PageReloadVisible}">
+
+            <Button 
+                    Padding="0"
+                    AutomationProperties.Name="Recharger la page" 
+                    Command="{Binding ReloadCommand}" 
+                    VerticalAlignment="Center" 
+                    Background="Transparent"
+                    BorderBrush="Transparent"
+                    HorizontalAlignment="Center" >
+                <StackPanel>
+
+                    <TextBlock
+                        FontWeight="Black" 
+                        FontFamily="Corbel"
+                        Padding="1"
+                        Foreground="#9e9ebe"  
+                        FontSize="20"
+                        Text="Assurez-vous de garder votre wifi allumé"/>
+                    <TextBlock
+                        FontWeight="Black" 
+                        FontFamily="Corbel"
+                        Foreground="#9e9ebe" 
+                        TextTrimming="CharacterEllipsis"
+                        FontSize="24"
+                        HorizontalAlignment="Center"
+                        Padding="1"
+                        Text="Appuyer ici pour recharger"/>
+
+                </StackPanel>
+            </Button>
         </Border>
         
     </Grid>
