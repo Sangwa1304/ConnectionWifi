@@ -1,94 +1,70 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 
 namespace ServiceTcpChared;
 
-public class AsyncCollection<T> 
+public sealed class AsyncCollection<T>
 {
-    CancellationTokenSource? cts = null;
-    private bool NoAdded = false;
-    private event Action? StopAdded;
-    private event Action? Added;
-    private bool Completed => _Collection.Count == 0;
-    private readonly List<T> _Collection = [];
-    private List<T> Collection { get => _Collection; }
-    public event Action<CancellationToken>? NewWord;
-
-    public AsyncCollection()
-    {
-        Added += () => cts?.Cancel();
-        StopAdded += () => cts?.Cancel();
-    }
-    public async Task AddAsync(T item)
-    {
-        
-        if (NoAdded) return;
-        Added?.Invoke();
-        _Collection.Add(item);
-        cts = new();
-        await Task.Delay(100);
-        if (cts?.IsCancellationRequested?? false) return;
-        
-        NewWord?.Invoke(cts?.Token?? default);
-    }
-    public async Task AddAsync(IEnumerable<T> items)
-    {
-
-        if (NoAdded) return;
-        Added?.Invoke();
-        _Collection.AddRange(items);
-        cts = new();
-        await Task.Delay(100);
-        if (cts?.IsCancellationRequested ?? false) return;
-
-        NewWord?.Invoke(cts?.Token ?? default);
-    }
-    public async IAsyncEnumerable<T> GetAsyncCollection([EnumeratorCancellation] CancellationToken token)
-    {
-        while (!token.IsCancellationRequested)
+    private readonly Channel<T> _channel =
+        Channel.CreateUnbounded<T>(new UnboundedChannelOptions
         {
-            if (Collection.Count != 0) 
-            { 
-                var r = Collection.First();
-                _Collection.Remove(r);
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false
+        });
 
-                yield return r;
-            }
-            else
-            {
-
-                if (NoAdded) break;
-            }
-            cts = new();
-            await Task.Delay(5000,cts.Token);
+    public Task AddAsync(T item)
+    {
+        if (!_channel.Writer.TryWrite(item))
+        {
+            throw new InvalidOperationException(
+                "Impossible d'ajouter un élément : la collection est fermée.");
         }
-        CompleteAdding();
 
+        return Task.CompletedTask;
     }
 
-    private async Task AwaitChange(CancellationToken token)
+    public Task AddAsync(IEnumerable<T> items)
     {
-        if(token.IsCancellationRequested)return;
-        while(!token.IsCancellationRequested)
+        ArgumentNullException.ThrowIfNull(items);
+
+        foreach (T item in items)
         {
-            await Task.Delay(1000, token);
+            if (!_channel.Writer.TryWrite(item))
+            {
+                throw new InvalidOperationException(
+                    "Impossible d'ajouter un élément : la collection est fermée.");
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<T> GetAsyncCollection(
+        [EnumeratorCancellation] CancellationToken token)
+    {
+        await foreach (T item in _channel.Reader
+            .ReadAllAsync(token)
+            .ConfigureAwait(false))
+        {
+            yield return item;
         }
     }
 
     internal void CompleteAdding()
     {
-        NoAdded = true;
-        StopAdded?.Invoke();
+        _channel.Writer.TryComplete();
     }
 
     internal IEnumerable<T> GetCollection()
     {
-        List<T> m = new();
-        foreach(var collecte in _Collection)
+        List<T> items = [];
+
+        while (_channel.Reader.TryRead(out T? item))
         {
-            m.Add(collecte);
+            items.Add(item);
         }
-        _Collection.Clear();
-        return m;
-        
+
+        return items;
     }
 }
