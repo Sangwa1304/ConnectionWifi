@@ -307,7 +307,7 @@ namespace WindowsWifiLibrary.Services
         } 
  
         public async Task<bool> AcceptInvitationAsync(string token) 
-        { 
+        {
             ThrowIfDisposed();
             if (_pendingInvitations.TryRemove(token, out var request)) 
             { 

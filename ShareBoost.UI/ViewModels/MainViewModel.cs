@@ -2,15 +2,14 @@ using LibraryMI.Models;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using ServiceTcpChared;
 using System;
+using System.Drawing;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -24,7 +23,6 @@ using WindowsWifiLibrary.Models;
 using WindowsWifiLibrary.Services;
 
 namespace ShareBoost.UI.ViewModels;
-
 public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly DispatcherQueue _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
@@ -678,13 +676,26 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(InformationWifiVisibily));
         });
 
-    private void WifiService_InvitationReceived(object? sender, WifiDirectInvitationEventArgs e)
-        => _dispatcherQueue.TryEnqueue(() => InvitationRequested?.Invoke(this, e));
+    private bool ShowSessionOccure = false;
+    private async void WifiService_InvitationReceived(object? sender, WifiDirectInvitationEventArgs e)
+    {
+
+        while (ShowSessionOccure) await Task.Delay(4000);
+        _dispatcherQueue.TryEnqueue(async () =>
+        {
+            ShowSessionOccure = true;
+            InvitationRequested?.Invoke(this, e);
+        });
+    }
 
     public Task RespondToInvitationAsync(WifiDirectInvitationEventArgs invitation, bool accept)
-        => accept
-            ? _wifiService.AcceptInvitationAsync(invitation.Token)
-            : _wifiService.RejectInvitationAsync(invitation.Token);
+        {
+            if (accept) _wifiService.AcceptInvitationAsync(invitation.Token);
+            else _wifiService.RejectInvitationAsync(invitation.Token);
+
+            ShowSessionOccure = false;
+            return Task.CompletedTask;
+        }
 
     private void WifiService_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e)
     {

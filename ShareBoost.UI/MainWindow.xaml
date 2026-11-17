@@ -8,8 +8,7 @@
     xmlns:local="using:ShareBoost.UI"
     xmlns:viewmodels="using:ShareBoost.UI.ViewModels"
     mc:Ignorable="d"
-    Title="ShareBoost"
-    ExtendsContentIntoTitleBar="True">
+    Title="ShareBoost">
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>
@@ -21,6 +20,8 @@
         Drop="OnDrop"
         AutomationProperties.Name="Windows Wi-Fi P2P">
         <Grid.Resources>
+
+            <local:ModernThumbnailConverter x:Key="ModernIconConverter"/>
             <local:BoolToVisibilityConverter x:Key="BoolToVisibility" />
             <!-- Style de Bouton WinUI Moderne -->
             <Style x:Key="CaptivatingButtonStyle" TargetType="Button">
@@ -40,7 +41,7 @@
                             <Grid x:Name="dropContainer">
                                 <Rectangle
                                     x:Name="dropBorder"
-                                    Fill="{TemplateBinding Background}"
+                                    Fill="{StaticResource AccentAAFillColorDisabled}"
                                     RadiusX="12"
                                     RadiusY="12"
                                     Stroke="#334155"
@@ -57,7 +58,8 @@
         </Grid.Resources>
 
         <Grid
-            Background="#050b1a8c"
+            Background="{StaticResource AccentAAFillColorDisabled}"
+            Opacity="0.6"
             Padding="12">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -127,7 +129,7 @@
                         Grid.Column="2"
                         Padding="10,4"
                         Margin="2,0,0,0"
-                        Background="#1E293B"
+                        Background="{StaticResource AccentAAFillColorDisabled}"
                         Command="{Binding ChangeFolderCommand}"
                         Content="Changer"
                         AutomationProperties.Name="Changer le dossier de réception"
@@ -140,8 +142,6 @@
                 Grid.Row="1">
                 <!-- Bouton Drop par défaut -->
                 <Button
-                    BorderBrush="Gray"
-                    CornerRadius="4"
                     Style="{StaticResource DropZoneButtonStyle}"
                     Command="{Binding BrowseCommand}"
                     AutomationProperties.Name="Ajouter des fichiers ou dossiers à envoyer"
@@ -177,7 +177,7 @@
                 <Border
                     Padding="2,15"
                     Height="Auto"
-                    Background="#050b1a8c"
+                    Background="{StaticResource AccentAAFillColorDisabled}"
                     BorderBrush="#8f8e8a8f"
                     BorderThickness="1"
                     CornerRadius="12"
@@ -246,18 +246,66 @@
                         </Grid>
                         <ScrollViewer
                             Grid.Row="1"
-                            BorderBrush="#334155"
+                            Background="{Binding}"
+                            BorderBrush="Transparent"
                             BorderThickness="0.5"
                             CornerRadius="8">
                             <ItemsControl ItemsSource="{Binding PendingFiles}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
+                                        <StackPanel>
+                                            <Image Source="{Binding PathFile ,Converter={StaticResource ModernIconConverter}}"/>
+                                            <Button
+                                            Margin="1,4,9,4"
+                                            Background="{StaticResource AccentAAFillColorDisabled}"
+                                            HorizontalContentAlignment="Stretch"
+                                            BorderBrush="#8f8e8a8f"
+                                                HorizontalAlignment="Stretch"
+                                            BorderThickness="0.45"
+                                            AutomationProperties.Name="Se connecter et envoyer à cet appareil"
+                                            Command="{Binding DataContext.ConnectAndSendCommand, ElementName=LayoutRoot}"
+                                            CommandParameter="{Binding}"
+                                            Padding="8"
+                                            CornerRadius="8">
+                                            <Border
+                                                 AutomationProperties.Name="Se connecter à cet appareil"
+                                                BorderBrush="Transparent"
+                                                Background="{Binding}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <StackPanel
+                                                       VerticalAlignment="Center"
+                                                        HorizontalAlignment="Stretch"
+                                                        Orientation="Horizontal">
+
+                                                        <StackPanel 
+                                                    Spacing="20"
+                                                          Orientation="Horizontal">
+                                                        <FontIcon Glyph="&#xE701;" />
+                                                            <TextBlock 
+                                                                FontSize="16"
+                                                                FontWeight="Bold" 
+                                                                Foreground="#F8FAFC" 
+                                                                Text="{Binding Name}" />
+                                                        </StackPanel>
+
+                                                    </StackPanel>
+                                                    <FontIcon 
+                                                        Grid.Column="1"
+                                                        Glyph="&#xE76C;" />
+                                                </Grid>
+                                            </Border>
+                                        </Button>
                                         <Border 
-                                                Margin="2,1,6,1" 
-                                                Padding="2,0.5" 
-                                                Background="#1E293B"  
-                                                BorderThickness="1" 
-                                                CornerRadius="1">
+                                            Margin="2,1,6,1"
+                                            Padding="8"
+                                            CornerRadius="1"
+                                                Background="{StaticResource AccentAAFillColorDisabled}" 
+                                                BorderThickness="0">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
@@ -344,6 +392,8 @@
                                                 </Grid>
                                             </Grid>
                                         </Border>
+
+                                        </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -389,7 +439,7 @@
 
                 <!-- Liste des appareils à proximité -->
                 <Border 
-                    Background="#050b1a8c" 
+                    Background="{StaticResource AccentAAFillColorDisabled}" 
                     Grid.Column="0"
                     Margin="2,0"
                     Padding="15"
@@ -413,15 +463,16 @@
                             </StackPanel>
                             <Button HorizontalAlignment="Right" Command="{Binding ScanCommand}" Content="Rechercher" AutomationProperties.Name="Rechercher des appareils" Visibility="{Binding StartSubscribeButtonVisibily}" />
                             <Button
-                                HorizontalAlignment="Right" 
-                                Foreground="#9e9ebe"
+                                HorizontalAlignment="Right"
+                                Background="{StaticResource AccentAAFillColorDisabled}"
+                                Foreground="{StaticResource AccentAAFillColorDisabled}"
                                 FontFamily="Segoe Fluent Icons"
                                 Command="{Binding RetryCommand}" 
                                 Content="&#xE72C;" 
                                 AutomationProperties.Name="Relancer la recherche d’appareils"
                                 Visibility="{Binding StopSubscribeButtonVisibily}" />
                         </Grid>
-                        <StackPanel 
+                        <StackPanel
                             Grid.Row="1"
                             Margin="0,0,0,40"
                             Visibility="{Binding InformationWifiVisibily}" 
@@ -453,54 +504,62 @@
                             <ItemsControl ItemsSource="{Binding DiscoveredDevices}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border 
-                                            Margin="1,4,9,4" 
-                                            Padding="12,5" 
-                                            Background="#1E293B"
+                                        <Button
+                                            Margin="1,4,9,4"
+                                            Background="{StaticResource AccentAAFillColorDisabled}"
+                                            HorizontalContentAlignment="Stretch"
                                             BorderBrush="#8f8e8a8f"
-                                            BorderThickness="0.5"
-                                            CornerRadius="2">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                                                    <TextBlock 
-                                                        FontSize="11"
-                                                        FontWeight="Bold" 
-                                                        Foreground="#F8FAFC" 
-                                                        Text="{Binding Name}" />
-                                                    <TextBlock Margin="0,2,0,0" FontSize="9" Foreground="#64748B" Text="{Binding Id}" />
-                                                </StackPanel>
-                                                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                                    <Button
-                                                        Padding="0"
+                                                HorizontalAlignment="Stretch"
+                                            BorderThickness="0.45"
+                                            AutomationProperties.Name="Se connecter et envoyer à cet appareil"
+                                            Command="{Binding DataContext.ConnectAndSendCommand, ElementName=LayoutRoot}"
+                                            CommandParameter="{Binding}"
+                                            Padding="8"
+                                            CornerRadius="8">
+                                            <Border
+                                                 AutomationProperties.Name="Se connecter à cet appareil"
+                                                BorderBrush="Transparent"
+                                                Background="{Binding}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <StackPanel
+                                                   VerticalAlignment="Center"
+                                                    HorizontalAlignment="Stretch"
+                                                    Orientation="Horizontal">
+                                                       
+                                                        <StackPanel 
+                                                            Spacing="20"
+                                                                  Orientation="Horizontal">
+                                                            <FontIcon Glyph="&#xE701;" />
+                                                            <TextBlock 
+                                                            FontSize="16"
+                                                            FontWeight="Bold" 
+                                                            Foreground="#F8FAFC" 
+                                                            Text="{Binding Name}" />
+                                                        </StackPanel>
+
+                                                    </StackPanel>
+                                                    <FontIcon 
+                                                        Grid.Column="1"
+                                                        Glyph="&#xE76C;" />
+
+                                                    <!--Button
+                                                        Grid.Column="1"
                                                         FontSize="20"
-                                                        Background="Transparent" 
-                                                         Command="{Binding DataContext.ConnectCommand, ElementName=LayoutRoot}"
-                                                        CommandParameter="{Binding}" 
-                                                        BorderThickness="0"
-                                                        Foreground="#9e9ebe"
-                                                        FontFamily="Segoe Fluent Icons"
-                                                        Content="&#xE703;" 
-                                                         AutomationProperties.Name="Se connecter à cet appareil"
-                                                        Margin="4,0"/>
-                                                    <Button
-                                                        BorderThickness="0"
-                                                        Padding="0"
-                                                        FontSize="20" 
-                                                        Margin="4,0"
                                                         Foreground="#9e9ebe"
                                                         Background="Transparent" 
                                                         FontFamily="Segoe Fluent Icons"
-                                                         Command="{Binding DataContext.ConnectAndSendCommand, ElementName=LayoutRoot}"
+                                                        Command="{Binding DataContext.ConnectAndSendCommand, ElementName=LayoutRoot}"
                                                         CommandParameter="{Binding}"
-                                                         Content="&#xE724;"
-                                                         AutomationProperties.Name="Se connecter et envoyer à cet appareil"/>
-                                                </StackPanel>
-                                            </Grid>
-                                        </Border>
+                                                        Content="&#xE724;"
+                                                        AutomationProperties.Name="Se connecter et envoyer à cet appareil"/-->
+                                                </Grid>
+                                            </Border>
+                                        </Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
