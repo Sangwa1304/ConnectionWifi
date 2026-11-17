@@ -1,17 +1,4 @@
-﻿
-/*
- * 
- * Protocole d'excution des trnasferts :
- * 1. L'appareil démarre et écoute les connexions entrantes (il demarre le serveur TCP et le client TCP)
- * 2. l'apareil 1 lancer le trnasfert via BLE en partageant les metadonnees, le port tcp, puis on initilise un canal de trnasmission(Wifidirect)
- * 3. l'appareil 2 se connecte à l'appareil 2 via le client TCP et l'address ip fournis via le canal de transmission ce qui arrete le serveur cote appareil 2 et demarre le serveur cote appareil 1, le client pareil.
- * 4. le client cote appareil 2 envoie la metadonnee du fichier à l'appareil 1, ce qui permet à l'appareil 1 de savoir quel fichier envoyer.
- * 5. l'appareil 1 envoie le fichier via le serveur TCP vers le client TCP de l'appareil 2.
- * 6. l'appareil 2 recoit le fichier et le sauvegarde dans le dossier de téléchargement.
- * 7. si le tableau de metadonnees est vide, le trnasfert est terminé, sinon on recommence à l'étape 4 pour un autre fichier.
- * 8. si un fichier est corrompu ou que le trnasfert est interrompu, l'appareil 2 peut renvoyer la metadonnee du fichier à l'appareil 1 pour recommencer le trnasfert du fichier.
-*/
-
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
@@ -20,45 +7,131 @@ namespace ServiceTcpChared;
 public class TcpClientStreaming : StreamingData, ITcpStreaming
 {
     private TcpClient? Client;
+
+    private static readonly TimeSpan ConnectionTimeout =
+        TimeSpan.FromSeconds(30);
+
+    private static readonly TimeSpan RetryDelay =
+        TimeSpan.FromMilliseconds(500);
+
     public int Port { get; }
+
     public IPAddress Address { get; }
 
     public override event Action? StreamingCreated;
     public override event Action? ConnectionClosed;
 
-    public TcpClientStreaming(string address,bool ServerMode):base()
+    public TcpClientStreaming(string address, bool serverMode)
+        : base()
     {
-        Port = ServerMode ? Port2 : Port1;
-        Address = IPAddress.Parse(address);
+        if (!IPAddress.TryParse(address, out IPAddress? ipAddress))
+        {
+            throw new ArgumentException(
+                "L'adresse IP distante est invalide.",
+                nameof(address));
+        }
+
+        Address = ipAddress;
+
+        // Le client se connecte au port du serveur distant.
+        Port = serverMode ? Port2 : Port1;
     }
 
     public async Task StartConnection(CancellationToken token)
     {
         Stop();
-        TcpClient client = new();
-        Client = client;
+
+        using CancellationTokenSource timeout =
+            CancellationTokenSource.CreateLinkedTokenSource(token);
+
+        timeout.CancelAfter(ConnectionTimeout);
+
+        TcpClient? candidate = null;
+
         try
         {
-            await client.ConnectAsync(Address, Port, token);
+            while (!timeout.IsCancellationRequested)
+            {
+                candidate = new TcpClient(Address.AddressFamily)
+                {
+                    NoDelay = true,
+                    ReceiveBufferSize = 64 * 1024,
+                    SendBufferSize = 64 * 1024
+                };
 
-            Stream = client.GetStream();
-            StreamingCreated?.Invoke();
-            await StartReceived(token);
+                try
+                {
+                    await candidate.ConnectAsync(
+                        Address,
+                        Port,
+                        timeout.Token
+                    ).ConfigureAwait(false);
+
+                    Client = candidate;
+                    Stream = candidate.GetStream();
+
+                    StreamingCreated?.Invoke();
+
+                    Debug.WriteLine(
+                        $"Connexion TCP établie vers {Address}:{Port}");
+
+                    await StartReceived(token).ConfigureAwait(false);
+
+                    return;
+                }
+                catch (SocketException ex)
+                    when (!timeout.IsCancellationRequested)
+                {
+                    Debug.WriteLine(
+                        $"Connexion TCP impossible : {ex.Message}");
+
+                    candidate.Dispose();
+                    candidate = null;
+
+                    await Task.Delay(
+                        RetryDelay,
+                        timeout.Token
+                    ).ConfigureAwait(false);
+                }
+            }
+
+            throw new TimeoutException(
+                $"Impossible de joindre {Address}:{Port} après 30 secondes.");
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (OperationCanceledException)
+            when (token.IsCancellationRequested)
         {
-            client.Dispose();
+            Debug.WriteLine("Connexion TCP annulée.");
         }
-        catch (Exception)
+        catch (OperationCanceledException ex)
         {
-            client.Dispose();
+            Debug.WriteLine("Délai de connexion TCP dépassé.");
+
             ConnectionClosed?.Invoke();
+
+            throw new TimeoutException(
+                $"Délai dépassé pour la connexion à {Address}:{Port}.",
+                ex);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(
+                $"Erreur du client TCP : {ex}");
+
+            ConnectionClosed?.Invoke();
+        }
+        finally
+        {
+            candidate?.Dispose();
+
+            Stop();
         }
     }
 
     public override void Stop()
     {
         base.Stop();
+
         Client?.Dispose();
         Client = null;
     }
