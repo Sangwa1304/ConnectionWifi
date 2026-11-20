@@ -1,4 +1,5 @@
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -58,7 +59,7 @@ public sealed partial class MainWindow : Window
             e.AcceptedOperation = DataPackageOperation.Copy;
             ViewModel.IsFileOverDropZone = true;
         }
-}
+    }
 
     private void OnDragLeave(object sender, DragEventArgs e)
     {

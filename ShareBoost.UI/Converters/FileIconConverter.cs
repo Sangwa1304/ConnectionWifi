@@ -1,27 +1,66 @@
+using LibraryMI.Models;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using Windows.Storage.Streams;
+using Windows.UI.Core;
 
 namespace ShareBoost.UI;
 
-public class FileMiIcon(FileI file)
+public class FileMiIcon
 {
+    static List<(FileI, Action<FileI>)> concurrents = new();
+
+    static Task Icona = Task.CompletedTask;
+    public static Task Add(FileI file, Action<FileI> retour, Func<DispatcherQueue> disp)
+    {
+        concurrents.Add((file, retour));
+        if (Icona.Status != TaskStatus.Running)
+        {
+            concurrents.Clear();
+            concurrents.Add((file, retour));
+
+            Icona = Task.Run(async()=>
+            {
+                ModernThumbnailConverter conv = new(disp);
+                while (concurrents.Count != 0)
+                {
+                    var bitmap = await conv.GetBitmap(concurrents[0].Item1.PathFile);
+                    concurrents[0].Item1.IconeMemory = bitmap;
+                    concurrents[0].Item2.Invoke(concurrents[0].Item1);
+                    concurrents.RemoveAt(0);
+                }
+                return Task.CompletedTask;
+            });
+            return Icona;
+        }
+        return Task.CompletedTask;
+    }
 
 }
-public class ModernThumbnailConverter : IValueConverter
+public partial class ModernThumbnailConverter : IValueConverter
 {
     private const uint SIIGBF_RESIZETOFIT = 0x00;
     private const uint SIIGBF_BIGGERSIZEOK = 0x01;
-
+    static Func<DispatcherQueue> Dispatcher;
+    public ModernThumbnailConverter(Func<DispatcherQueue> queue)
+    {
+        Dispatcher = queue;
+    }
     public async Task<object> Convert(object value, Type targetType, object parameter, string language)
     {
+        return await GetBitmap(value);
+    }
+    public async Task<BitmapImage> GetBitmap(object value)
+    {
 
-        await Task.Delay(50);
         if (value is not string filePath ||
             string.IsNullOrWhiteSpace(filePath) ||
             !File.Exists(filePath))
@@ -32,8 +71,8 @@ public class ModernThumbnailConverter : IValueConverter
         // 1. Miniature Windows Shell
         try
         {
-            BitmapImage thumbnail =
-                await GetShellThumbnail(filePath, 128, 128);
+            BitmapImage thumbnail = await
+                 GetShellThumbnail(filePath, 128, 128);
 
             if (thumbnail != null)
                 return thumbnail;
@@ -46,13 +85,11 @@ public class ModernThumbnailConverter : IValueConverter
         // 2. Icône associée
         try
         {
-            await Task.Delay(50);
             using (Icon icon =
                 Icon.ExtractAssociatedIcon(filePath))
             {
-                await Task.Delay(50);
                 if (icon != null)
-                    return ConvertIconToImageSource(icon);
+                    return await ConvertIconToImageSource(icon);
             }
         }
         catch
@@ -63,7 +100,6 @@ public class ModernThumbnailConverter : IValueConverter
         // 3. Icône générique
         return await GetDefaultIcon();
     }
-
     // -----------------------------------------
     // WINDOWS SHELL THUMBNAIL
     // -----------------------------------------
@@ -73,7 +109,6 @@ public class ModernThumbnailConverter : IValueConverter
         int width,
         int height)
     {
-        await Task.Delay(50);
         Guid iid = typeof(IShellItemImageFactory).GUID;
 
         IShellItemImageFactory factory = null;
@@ -88,7 +123,7 @@ public class ModernThumbnailConverter : IValueConverter
                 out factory);
 
             Marshal.ThrowExceptionForHR(hr);
-            await Task.Delay(50);
+
             if (factory == null)
                 return null;
 
@@ -98,7 +133,7 @@ public class ModernThumbnailConverter : IValueConverter
                 out hBitmap);
 
             Marshal.ThrowExceptionForHR(hr);
-            await Task.Delay(50);
+
             if (hBitmap == IntPtr.Zero)
                 return null;
 
@@ -109,13 +144,8 @@ public class ModernThumbnailConverter : IValueConverter
                 bitmap.Save(stream, ImageFormat.Png);
                 stream.Position = 0;
 
-                BitmapImage image = new BitmapImage();
 
-                // Initialisation synchrone depuis un flux
-                image.SetSource(
-                    stream.AsRandomAccessStream());
-                await Task.Delay(50);
-                return image;
+                return await GetBit(stream.AsRandomAccessStream());
             }
         }
         finally
@@ -135,7 +165,7 @@ public class ModernThumbnailConverter : IValueConverter
     // ICON CONVERSION
     // -----------------------------------------
 
-    private static async Task<BitmapImage> ConvertIconToImageSource(
+    private async static Task<BitmapImage> ConvertIconToImageSource(
         Icon icon)
     {
         using (Bitmap bitmap = icon.ToBitmap())
@@ -143,13 +173,21 @@ public class ModernThumbnailConverter : IValueConverter
         {
             bitmap.Save(stream, ImageFormat.Png);
             stream.Position = 0;
-            await Task.Delay(50);
-            BitmapImage image = new BitmapImage();
 
-            image.SetSource(stream.AsRandomAccessStream());
-
-            return image;
+            return await GetBit(stream.AsRandomAccessStream());
         }
+    }
+
+    private static async Task<BitmapImage> GetBit(IRandomAccessStream randomAccessStream)
+    {
+        var tcs = new TaskCompletionSource<BitmapImage>();
+        Dispatcher.Invoke()?.TryEnqueue(async () =>
+        {
+            var map = new BitmapImage();
+            await map.SetSourceAsync(randomAccessStream);
+            tcs.SetResult(map);
+        });
+        return await tcs.Task;
     }
 
     // -----------------------------------------
@@ -160,7 +198,6 @@ public class ModernThumbnailConverter : IValueConverter
     {
         try
         {
-            await Task.Delay(50);
             using (Icon icon =
                 (Icon)SystemIcons.Application.Clone())
             {

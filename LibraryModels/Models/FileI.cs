@@ -2,15 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace LibraryMI.Models;
 
-public class FileI : IEquatable<FileI?>
+public partial class FileI : IEquatable<FileI?>
 {
     public bool IsPlayer => FileIs == Types.Music || FileIs == Types.Video;
     public bool IsMusic => FileIs == Types.Music;
     public bool IsVideo => FileIs == Types.Video;
     public readonly Types FileIs = Types.Others;
+    [ObservableProperty]
+    public object? IconeMemory { get; set; } = null;
     public string PathFile { get; }
     public string Name { get; }
     public long Size { get; }

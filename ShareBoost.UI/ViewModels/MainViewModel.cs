@@ -21,6 +21,7 @@ using Windows.Storage;
 using Windows.Storage.Pickers;
 using WindowsWifiLibrary.Models;
 using WindowsWifiLibrary.Services;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace ShareBoost.UI.ViewModels;
 public partial class MainViewModel : INotifyPropertyChanged, IDisposable
@@ -259,6 +260,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<WifiDirectInvitationEventArgs>? InvitationRequested;
+    Func<DispatcherQueue> Dispatcher;
 
     public MainViewModel(IntPtr windowHandle)
     {
@@ -266,7 +268,6 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _wifiService = new WindowsWifiDirectService();
         ServerClientInstance = new();
         ServerClientInstance.TransfertRequest += ServerClientInstance_TransfertRequest;
-
         BrowseCommand = new RelayCommand(async _ => await ExecuteBrowseAsync());
         ChangeFolderCommand = new RelayCommand(async _ => await ExecuteChangeFolderAsync());
         RetryCommand = new RelayCommand(_ => RetrySearch());
@@ -441,18 +442,33 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public void AddFiles(IEnumerable<string>? files)
     {
+
         if (files == null) return;
-        _dispatcherQueue.TryEnqueue(() =>
+
+        foreach (var rawPath in files.Where(p => !string.IsNullOrWhiteSpace(p)))
         {
-            foreach (var rawPath in files.Where(p => !string.IsNullOrWhiteSpace(p)))
+            var candidate = Path.GetFullPath(rawPath.Trim());
+            if (!PendingFiles.Any(item => string.Equals(item.PathFile, candidate, StringComparison.OrdinalIgnoreCase)))
             {
-                var candidate = Path.GetFullPath(rawPath.Trim());
-                if (!PendingFiles.Any(item => string.Equals(item.PathFile, candidate, StringComparison.OrdinalIgnoreCase)))
+                var fii = new FileI(candidate);
+                if (!PendingFiles.Contains(fii))
                 {
-                    var fii = new FileI(candidate);
-                    if(!PendingFiles.Contains(fii)) PendingFiles.Add(fii);
+                    PendingFiles.Add(fii);
+                    FileMiIcon.Add(fii, Pup,()=>_dispatcherQueue);
+
                 }
             }
+        }
+    }
+
+    private async void Pup(FileI fii)
+    {
+        
+        _dispatcherQueue.TryEnqueue(() =>
+        {
+            if (PendingFiles.Contains(fii)) PendingFiles.Remove(fii);
+            PendingFiles.Add(fii);
+
         });
     }
 
