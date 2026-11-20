@@ -5,639 +5,649 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:local="using:ShareBoost.UI"
-    xmlns:viewmodels="using:ShareBoost.UI.ViewModels"
     mc:Ignorable="d"
     Title="ShareBoost">
+
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>
-    <Grid 
+
+    <Grid
         x:Name="LayoutRoot"
         AllowDrop="True"
         DragOver="OnDragOver"
         DragLeave="OnDragLeave"
         Drop="OnDrop"
-        AutomationProperties.Name="Windows Wi-Fi P2P">
-        <Grid.Resources>
+        Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+        AutomationProperties.Name="ShareBoost, partage de fichiers par Wi-Fi Direct">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-            <local:BoolToVisibilityConverter x:Key="BoolToVisibility" />
-            <!-- Style de Bouton WinUI Moderne -->
-            <Style x:Key="CaptivatingButtonStyle" TargetType="Button">
-                <Setter Property="Background" Value="#2563EB" />
-                <Setter Property="Foreground" Value="White" />
-                <Setter Property="Padding" Value="16,10" />
-                <Setter Property="FontWeight" Value="Bold" />
-                <Setter Property="CornerRadius" Value="8" />
-            </Style>
-
-            <!-- Style Cyber-Réactif de la Zone Drag & Drop Piloté par le ViewModel -->
-            <Style x:Key="DropZoneButtonStyle" TargetType="Button">
-                <Setter Property="Background" Value="#1E293B" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="Button">
-                            <Grid x:Name="dropContainer">
-                                <Rectangle
-                                    x:Name="dropBorder"
-                                    Fill="{StaticResource AccentAAFillColorDisabled}"
-                                    RadiusX="12"
-                                    RadiusY="12"
-                                    Stroke="#334155"
-                                    StrokeDashArray="4 4"
-                                    StrokeThickness="2" />
-                                <Border Padding="30">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                </Border>
-                            </Grid>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-        </Grid.Resources>
-
+        <!-- Barre de titre intÃ©grÃ©e Ã  la surface Mica -->
         <Grid
-            Background="{StaticResource LayerOnMicaBaseAltFillColorTransparentBrush}"
-            Opacity="0.6"
-            Padding="12">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="5*" />
-                <RowDefinition Height="4.7*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+            x:Name="AppTitleBar"
+            Grid.Row="0"
+            Height="48"
+            Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+            AutomationProperties.Name="Barre de titre ShareBoost">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="0" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="0" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="1" Margin="18,0,0,0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <FontIcon Glyph="&#xE8D7;" FontSize="18" Foreground="{ThemeResource SystemControlForegroundAccentBrush}" />
+                <TextBlock
+                    Text="ShareBoost"
+                    FontSize="15"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                    AutomationProperties.Name="ShareBoost" />
+            </StackPanel>
+        </Grid>
 
-            <!-- EN-TÊTE : STATUT GLOBAL -->
-            <Border
-                Grid.Row="0"
-                Padding="5"
-                Background="Transparent"
-                BorderBrush="#8f8e8a8f"
-                BorderThickness="0"
-                CornerRadius="10">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+        <ScrollViewer
+            Grid.Row="1"
+            Padding="20,14,20,20"
+            VerticalScrollBarVisibility="Auto"
+            HorizontalScrollBarVisibility="Disabled"
+            ZoomMode="Disabled">
+            <StackPanel Spacing="14">
 
-                    <StackPanel 
-                        Orientation="Horizontal" 
-                        VerticalAlignment="Center">
-                        <Ellipse
-                             Width="10"
-                             Height="10"
-                             Margin="0,0,10,0"
-                             Fill="{Binding CurrentStateDisplayColor}"/>
-                        <TextBlock 
-                            FontSize="11" 
-                            FontWeight="Black" 
-                            Foreground="#64748B" 
-                            VerticalAlignment="Center" 
-                            Text="Etat |" />
-                        <TextBlock 
-                            HorizontalAlignment="Left"
-                            FontSize="12" 
-                            Foreground="#64748B" 
-                            Margin="1,0"
-                            Grid.Column="1"
-                            VerticalAlignment="Center"
-                            Text=" Dossier :  " />
-                    </StackPanel>
-                    <StackPanel
-                        VerticalAlignment="Center"
-                        Grid.Column="1">
-                        <Button
-                            Padding="0"
-                            Command="{Binding OpenDownloadFolderCommand}"
-                            Margin="2,0,0,0"
-                            BorderBrush="Transparent"
-                            Background="Transparent"
-                            AutomationProperties.Name="ouvrir le dossier de réception">
-                            <TextBlock
-                                FontSize="12"
-                                FontWeight="Bold" 
-                                Foreground="#b4c0cd" 
-                                Text="{Binding DownloadFolderDisplay}" 
-                                TextTrimming="CharacterEllipsis"/>
-                        </Button>
-
-                    </StackPanel>
-                    <Button
-                        Grid.Column="2"
-                        Padding="10,4"
-                        Margin="2,0,0,0"
-                        Background="{StaticResource AccentAAFillColorDisabled}"
-                        Command="{Binding ChangeFolderCommand}"
-                        Content="Changer"
-                        AutomationProperties.Name="Changer le dossier de réception"
-                        FontSize="11" />
-                </Grid>
-            </Border>
-
-            <!-- ZONE GLISSER-DÉPOSER / FICHIERS -->
-            <Grid 
-                Grid.Row="1">
-                <!-- Bouton Drop par défaut -->
-                <Button
-                    Style="{StaticResource DropZoneButtonStyle}"
-                    Command="{Binding BrowseCommand}"
-                    AutomationProperties.Name="Ajouter des fichiers ou dossiers à envoyer"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Stretch"
-                    Background="#1E293B"
-                    Visibility="{Binding NoPendingFiles, Converter={StaticResource BoolToVisibility}, Mode=OneWay}">
-                    <StackPanel
-                        HorizontalAlignment="Center" 
-                        VerticalAlignment="Center">
-                        <TextBlock 
-                            Margin="0,0,0,10" 
-                            HorizontalAlignment="Center"
-                            FontSize="36" 
-                            Foreground="gray"
-                            Text="⚡" />
-                        <TextBlock
-                            HorizontalAlignment="Center" 
-                            FontSize="16" 
-                            FontWeight="Bold" 
-                            Foreground="#F1F5F9" 
-                            Text="Glissez-déposez vos fichiers ici" />
-                        <TextBlock
-                            Margin="0,4,0,0" 
-                            HorizontalAlignment="Center" 
-                            FontSize="12" 
-                            Foreground="#64748B" 
-                            Text="ou cliquez pour parcourir" />
-                    </StackPanel>
-                </Button>
-
-                <!-- Liste des fichiers prêts -->
+                <!-- Ã‰tat de la connexion et dossier de rÃ©ception -->
                 <Border
-                    
-                    Padding="15,1"
-                    Background="{StaticResource AccentAAFillColorDisabled}"
-                    BorderBrush="#8f8e8a8f"
+                    Padding="14"
+                    Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                    BorderBrush="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse
+                            Width="10"
+                            Height="10"
+                            VerticalAlignment="Center"
+                            Fill="{ThemeResource SystemControlForegroundAccentBrush}"
+                            AutomationProperties.AccessibilityView="Raw" />
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock
+                                Text="{Binding CurrentStateDisplayText}"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                                AutomationProperties.LiveSetting="Polite"
+                                AutomationProperties.Name="Ã‰tat Wi-Fi Direct" />
+                            <TextBlock
+                                Text="{Binding DownloadFolderDisplay}"
+                                FontSize="12"
+                                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                TextTrimming="CharacterEllipsis"
+                                AutomationProperties.Name="Dossier de rÃ©ception" />
+                        </StackPanel>
+                        <Button
+                            Grid.Column="2"
+                            MinWidth="44"
+                            MinHeight="40"
+                            Margin="8,0,0,0"
+                            Padding="10,6"
+                            Command="{Binding OpenDownloadFolderCommand}"
+                            AutomationProperties.Name="Ouvrir le dossier de rÃ©ception">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE8B7;" />
+                                <TextBlock Text="Ouvrir" />
+                            </StackPanel>
+                        </Button>
+                        <Button
+                            Grid.Column="3"
+                            MinWidth="44"
+                            MinHeight="40"
+                            Padding="12,6"
+                            Command="{Binding ChangeFolderCommand}"
+                            Content="Choisir le dossier"
+                            AutomationProperties.Name="Choisir le dossier de rÃ©ception"
+                            AutomationProperties.HelpText="Modifie lâ€™emplacement oÃ¹ les fichiers reÃ§us sont enregistrÃ©s." />
+                    </Grid>
+                </Border>
+
+                <!-- SÃ©lection des fichiers -->
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                    BorderBrush="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock
+                                    Text="Fichiers Ã  envoyer"
+                                    FontSize="17"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                                    AutomationProperties.HeadingLevel="Level1" />
+                                <TextBlock
+                                    Text="{Binding DropStatusText}"
+                                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                            </StackPanel>
+                            <Button
+                                Grid.Column="1"
+                                MinHeight="40"
+                                Padding="12,6"
+                                Command="{Binding BrowseCommand}"
+                                AutomationProperties.Name="Ajouter des fichiers ou dossiers">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE710;" />
+                                    <TextBlock Text="Ajouter" />
+                                </StackPanel>
+                            </Button>
+                            <Button
+                                Grid.Column="2"
+                                MinWidth="44"
+                                MinHeight="40"
+                                Margin="8,0,0,0"
+                                Padding="10,6"
+                                Command="{Binding DeleteAllCommand}"
+                                Visibility="{Binding PendingFilesVisibility}"
+                                AutomationProperties.Name="Retirer tous les fichiers de la liste">
+                                <FontIcon Glyph="&#xE74D;" />
+                            </Button>
+                        </Grid>
+
+                        <Border
+                            Padding="18,16"
+                            Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                            CornerRadius="10"
+                            Visibility="{Binding EmptyPendingFilesVisibility}">
+                            <StackPanel HorizontalAlignment="Center" Spacing="8">
+                                <FontIcon
+                                    Glyph="&#xE8E5;"
+                                    FontSize="26"
+                                    HorizontalAlignment="Center"
+                                    Foreground="{ThemeResource SystemControlForegroundAccentBrush}"
+                                    AutomationProperties.AccessibilityView="Raw" />
+                                <TextBlock
+                                    Text="DÃ©posez vos fichiers ici ou utilisez Ajouter"
+                                    TextAlignment="Center"
+                                    TextWrapping="Wrap"
+                                    Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" />
+                                <TextBlock
+                                    Text="Vous pouvez aussi sÃ©lectionner des fichiers depuis votre ordinateur."
+                                    FontSize="12"
+                                    TextAlignment="Center"
+                                    TextWrapping="Wrap"
+                                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                            </StackPanel>
+                        </Border>
+
+                        <ListView
+                            ItemsSource="{Binding PendingFiles}"
+                            SelectionMode="None"
+                            IsTabStop="False"
+                            MaxHeight="280"
+                            Visibility="{Binding PendingFilesVisibility}"
+                            AutomationProperties.Name="Liste des fichiers prÃªts Ã  lâ€™envoi">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnSpacing="8" MinHeight="56">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button
+                                            MinHeight="48"
+                                            Padding="8,6"
+                                            HorizontalContentAlignment="Stretch"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Command="{Binding DataContext.OpenFileCommand, ElementName=LayoutRoot}"
+                                            CommandParameter="{Binding}"
+                                            AutomationProperties.Name="Ouvrir le fichier sÃ©lectionnÃ©">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="40" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon
+                                                    Glyph="{Binding IconGlyph}"
+                                                    FontSize="21"
+                                                    HorizontalAlignment="Center"
+                                                    VerticalAlignment="Center"
+                                                    Foreground="{ThemeResource SystemControlForegroundAccentBrush}"
+                                                    AutomationProperties.AccessibilityView="Raw" />
+                                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock
+                                                        Text="{Binding Name}"
+                                                        FontWeight="SemiBold"
+                                                        TextTrimming="CharacterEllipsis"
+                                                        Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" />
+                                                    <TextBlock
+                                                        Text="{Binding Sizee}"
+                                                        FontSize="12"
+                                                        Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </Button>
+                                        <Button
+                                            Grid.Column="1"
+                                            MinWidth="44"
+                                            MinHeight="44"
+                                            Padding="8"
+                                            AutomationProperties.Name="Autres actions pour le fichier sÃ©lectionnÃ©"
+                                            AutomationProperties.HelpText="Ouvre les actions de suppression et dâ€™emplacement du fichier.">
+                                            <FontIcon Glyph="&#xE712;" />
+                                            <Button.Flyout>
+                                                <MenuFlyout>
+                                                    <MenuFlyoutItem
+                                                        Text="Ouvrir lâ€™emplacement"
+                                                        Command="{Binding DataContext.OpenSourceDirectoryCommand, ElementName=LayoutRoot}"
+                                                        CommandParameter="{Binding}">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE8B7;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem
+                                                        Text="Retirer de la liste"
+                                                        Command="{Binding DataContext.DeleteItemCommand, ElementName=LayoutRoot}"
+                                                        CommandParameter="{Binding}">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE74D;" />
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                </MenuFlyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
+                </Border>
+
+                <!-- Appareils disponibles -->
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                    BorderBrush="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
                     BorderThickness="1"
                     CornerRadius="12"
-                    Visibility="{Binding HasPendingFiles, Converter={StaticResource BoolToVisibility}, Mode=OneWay}">
-                    <Border.Transitions>
-                        <TransitionCollection>
-                            <EntranceThemeTransition IsStaggeringEnabled="True" />
-                        </TransitionCollection>
-                    </Border.Transitions>
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
-                        <Grid 
-                            Grid.Row="0">
-                            <StackPanel
-                                Spacing="20"
-                                Orientation="Horizontal">
-
-                                <TextBlock 
-                                FontWeight="Bold" 
-                                Foreground="#94A3B8" 
-                                Text="Fichiers prêts à l'envoi : " />
+                    Visibility="{Binding ConnectedVisibilityOff}">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
                                 <TextBlock
-                                Foreground="#64748B"
-                                Text="{Binding DropStatusText}" />
-
-                            </StackPanel>
-
-                            <StackPanel 
-                                HorizontalAlignment="Right" 
-                                Orientation="Horizontal">
-                                <Button
-                                    FontFamily="Segoe Fluent Icons"
-                                    Padding="5"
-                                    Margin="8,0"
-                                    Background="{StaticResource AccentAAFillColorDisabled}"
-                                    Command="{Binding BrowseCommand}" 
-                                    Foreground="Green"
-                                    AutomationProperties.Name="Ajouter des éléments" >
-                                    <FontIcon Glyph="&#xE723;&#xE710;" />
-                                </Button>
-                                <Button 
-                                    FontFamily="Segoe Fluent Icons"
-                                    Padding="5" 
-                                    FontWeight="Bold"
-                                    Background="{StaticResource AccentAAFillColorDisabled}" 
-                                    Command="{Binding DeleteAllCommand}"
-                                    Foreground="red"
-                                    AutomationProperties.Name="Supprimer tous les éléments" >
-                                    <FontIcon Glyph="&#xE74D;" />
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                        <ScrollViewer
-                            Padding="4"
-                            Grid.Row="1"
-                            Opacity="0.8"
-                            Background="Transparent"
-                            BorderBrush="Transparent"
-                            BorderThickness="0.5">
-                            <ItemsControl ItemsSource="{Binding PendingFiles}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-
-                                        <Button
-                                            Margin="1,4,9,4"
-                                            Background="{StaticResource AccentAAFillColorDisabled}" 
-                                            Command="{Binding DataContext.OpenFileCommand, ElementName=LayoutRoot}" 
-                                            CommandParameter="{Binding}"
-                                            HorizontalContentAlignment="Stretch"
-                                            BorderBrush="#8f8e8a8f"
-                                            HorizontalAlignment="Stretch"
-                                            
-                                            BorderThickness="0.45"
-                                            Padding="0"
-                                            CornerRadius="8">
-                                                <Border
-                                                BorderBrush="Transparent"
-                                                Background="{Binding}">
-                                                    <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <Border CornerRadius="8"
-                                                            Margin="0,0,10,0">
-                                                        
-                                                        <Image 
-                                                            Width="41"
-                                                            Height="41"
-                                                            Stretch="UniformToFill"
-                                                            Source="{Binding IconeMemory}"/>
-
-                                                    </Border>
-                                                    <StackPanel 
-                                                            Grid.Column="1">
-                                                        <TextBlock 
-                                                                FontSize="18"
-                                                                FontWeight="Bold" 
-                                                                Foreground="#F8FAFC" 
-                                                                TextTrimming="CharacterEllipsis"
-                                                                Text="{Binding Name}" />
-                                                        <TextBlock 
-                                                                    FontSize="14" 
-                                                                    Foreground="#94A3B9"
-                                                                    Text="{Binding Sizee}" />
-                                                    </StackPanel>
-                                                    <DropDownButton
-                                                            Grid.Column="2"
-                                                            VerticalAlignment="Stretch"
-                                                            Background="Transparent"
-                                                            BorderBrush="Transparent">
-                                                            <DropDownButton.Flyout>
-                                                                <MenuFlyout 
-                                                                    Placement="Bottom">
-                                                                    <MenuFlyoutItem 
-                                                                        AutomationProperties.Name="Supprimer ce fichier" 
-                                                                        Command="{Binding DataContext.DeleteItemCommand, ElementName=LayoutRoot}" 
-                                                                        CommandParameter="{Binding}" 
-                                                                        Text="delette">
-                                                                        <MenuFlyoutItem.Icon>
-                                                                            <FontIcon Glyph="&#xE74D;" Foreground="Red" />
-                                                                        </MenuFlyoutItem.Icon>
-                                                                    </MenuFlyoutItem>
-                                                                <MenuFlyoutItem 
-                                                                    AutomationProperties.Name="ouvrir le dossier du  fichier" 
-                                                                    Command="{Binding DataContext.OpenSourceDirectoryCommand, ElementName=LayoutRoot}" 
-                                                                    CommandParameter="{Binding}" 
-                                                                    Text="directory">
-                                                                    <MenuFlyoutItem.Icon>
-                                                                        <FontIcon Glyph="&#xE838;" />
-                                                                    </MenuFlyoutItem.Icon>
-                                                                </MenuFlyoutItem>
-                                                            </MenuFlyout>
-                                                            </DropDownButton.Flyout>
-                                                        </DropDownButton>
-                                                   
-                                                    </Grid>
-                                                </Border>
-                                            </Button>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                    </Grid>
-                </Border>
-            </Grid>
-
-            <!-- ZONE APPAREILS DISPONIBLES ET HISTORIQUE -->
-            <Grid Grid.Row="2" Margin="0,5,0,15" x:Name="RootGrid">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <!-- Appareil connecté -->
-                <Border 
-                    Background="#111827" 
-                    Grid.Column="0"
-                    Margin="0,0,10,0"
-                    Padding="15"
-                    BorderBrush="#1E293B"
-                    BorderThickness="4"
-                    Visibility="{Binding ConnectedVisibilityOn}"
-                    CornerRadius="12">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBlock FontSize="18" FontWeight="Black" Foreground="White" HorizontalAlignment="Center" Text="Appareil connecté :" Margin="0,8"/>
-                        <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,0,5,0">
-                            <TextBlock FontSize="16" FontWeight="Bold" Foreground="#F8FAFC" Text="{Binding PeerConnecte.Name}" />
-                            <TextBlock Margin="0,2,0,0" FontSize="9" HorizontalAlignment="Center" Foreground="#64748B" Text="{Binding PeerConnecte.Id}" />
-                        </StackPanel>
-                        <StackPanel Grid.Row="2" Margin="0,12" Orientation="Horizontal" HorizontalAlignment="Center">
-                            <Button Padding="6,6" Margin="2" Command="{Binding DisconnectCommand}" CommandParameter="{Binding PeerConnecte}" Content="Déconnecter" Background="Red"/>
-                            <Button Padding="6,6" Margin="2" Command="{Binding SendCommand}" CommandParameter="{Binding PeerConnecte}" Content="Envoyer ->" Background="Green" />
-                        </StackPanel>
-                    </Grid>
-                </Border>
-
-                <!-- Liste des appareils à proximité -->
-                <Border 
-                    Background="{StaticResource AccentAAFillColorDisabled}" 
-                    Grid.Column="0"
-                    Margin="2,0"
-                    Padding="15,1"
-                    BorderBrush="#8f8e8a8f" 
-                    BorderThickness="1" 
-                    Visibility="{Binding ConnectedVisibilityOff}" 
-                    CornerRadius="12">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <Grid Grid.Row="0">
-                            <StackPanel Orientation="Vertical">
+                                    Text="Appareils Ã  proximitÃ©"
+                                    FontSize="17"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                                    AutomationProperties.HeadingLevel="Level1" />
                                 <TextBlock
-                                    FontSize="14" 
-                                    FontWeight="Black" 
-                                    Foreground="#9e9ebe" 
-                                    Text="Appareils à proximité" />
-                                <TextBlock Margin="0,2,0,0" FontSize="10" Foreground="#64748B" Text="Sélectionnez une cible" />
+                                    Text="Choisissez un appareil pour vous connecter."
+                                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
                             </StackPanel>
-                            <Button HorizontalAlignment="Right" Command="{Binding ScanCommand}" Content="Rechercher" AutomationProperties.Name="Rechercher des appareils" Visibility="{Binding StartSubscribeButtonVisibily}" />
                             <Button
-                                HorizontalAlignment="Right"
-                                Background="{StaticResource AccentAAFillColorDisabled}"
-                                Foreground="{StaticResource AccentAAFillColorDisabled}"
-                                FontFamily="Segoe Fluent Icons"
-                                Command="{Binding RetryCommand}" 
-                                Content="&#xE72C;" 
-                                AutomationProperties.Name="Relancer la recherche d’appareils"
-                                Visibility="{Binding StopSubscribeButtonVisibily}" />
+                                Grid.Column="1"
+                                MinHeight="40"
+                                Padding="12,6"
+                                Command="{Binding ScanCommand}"
+                                Visibility="{Binding StartSubscribeButtonVisibily}"
+                                AutomationProperties.Name="Rechercher les appareils Ã  proximitÃ©">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE721;" />
+                                    <TextBlock Text="Rechercher" />
+                                </StackPanel>
+                            </Button>
+                            <Button
+                                Grid.Column="2"
+                                MinWidth="44"
+                                MinHeight="40"
+                                Margin="8,0,0,0"
+                                Padding="10,6"
+                                Command="{Binding RetryCommand}"
+                                Visibility="{Binding StopSubscribeButtonVisibily}"
+                                AutomationProperties.Name="Relancer la recherche dâ€™appareils">
+                                <FontIcon Glyph="&#xE72C;" />
+                            </Button>
                         </Grid>
-                        <StackPanel
-                            Grid.Row="1"
-                            Margin="0,0,0,40"
-                            Visibility="{Binding InformationWifiVisibily}" 
-                            VerticalAlignment="Center"
-                            HorizontalAlignment="Center">
+
+                        <Border Padding="12" Visibility="{Binding InformationWifiVisibily}">
+                        <StackPanel Spacing="6" HorizontalAlignment="Center">
                             <TextBlock
-                                FontWeight="Black" 
-                                FontFamily="Corbel"
-                                
-                                Padding="1"
-                                Foreground="#9e9ebe"
-                                FontSize="20"
-                                Text="Aucun Appareil disponible pour l'instant"/>
+                                Text="Aucun appareil dÃ©tectÃ© pour le moment"
+                                FontWeight="SemiBold"
+                                TextAlignment="Center"
+                                Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                                Visibility="{Binding PageReloadNoVisible}" />
                             <TextBlock
-                                FontWeight="Black" 
-                                FontFamily="Corbel"
-                                Foreground="#9e9ebe" 
-                                TextTrimming="CharacterEllipsis"
-                                FontSize="18"
-                               HorizontalAlignment="Center"
-                                Padding="1"
-                                Text="Assurez-vous que l'autre Appareil est visible"/>
+                                Text="VÃ©rifiez que lâ€™autre appareil est allumÃ© et visible, puis relancez la recherche."
+                                TextWrapping="Wrap"
+                                MaxWidth="420"
+                                TextAlignment="Center"
+                                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                                Visibility="{Binding PageReloadNoVisible}" />
+                            <TextBlock
+                                Text="Wi-Fi Direct nâ€™est pas disponible sur cet appareil. VÃ©rifiez lâ€™adaptateur et son Ã©tat."
+                                TextWrapping="Wrap"
+                                MaxWidth="420"
+                                TextAlignment="Center"
+                                Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                                Visibility="{Binding PageReloadVisible}" />
                         </StackPanel>
-                        <ScrollViewer 
-                            Padding="2"
-                            CornerRadius="9"
-                            VerticalScrollBarVisibility ="Auto"
-                            Grid.Row="1">
-                            <ItemsControl ItemsSource="{Binding DiscoveredDevices}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
+                        </Border>
+
+                        <ListView
+                            ItemsSource="{Binding DiscoveredDevices}"
+                            SelectionMode="None"
+                            IsTabStop="False"
+                            MaxHeight="300"
+                            AutomationProperties.Name="Appareils Wi-Fi Direct disponibles">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnSpacing="8" MinHeight="64">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="40" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon
+                                            Glyph="&#xE701;"
+                                            FontSize="20"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Foreground="{ThemeResource SystemControlForegroundAccentBrush}"
+                                            AutomationProperties.AccessibilityView="Raw" />
+                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock
+                                                Text="{Binding Name}"
+                                                FontWeight="SemiBold"
+                                                TextTrimming="CharacterEllipsis"
+                                                Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" />
+                                            <TextBlock
+                                                Text="{Binding Id}"
+                                                FontSize="11"
+                                                TextTrimming="CharacterEllipsis"
+                                                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                        </StackPanel>
                                         <Button
-                                            Margin="1,4,9,4"
-                                            Background="{StaticResource AccentAAFillColorDisabled}"
-                                            HorizontalContentAlignment="Stretch"
-                                            BorderBrush="#8f8e8a8f"
-                                                HorizontalAlignment="Stretch"
-                                            BorderThickness="0.45"
-                                            AutomationProperties.Name="Se connecter et envoyer à cet appareil"
+                                            Grid.Column="2"
+                                            MinHeight="40"
+                                            Padding="10,6"
+                                            Command="{Binding DataContext.ConnectCommand, ElementName=LayoutRoot}"
+                                            CommandParameter="{Binding}"
+                                            Content="Connecter"
+                                            AutomationProperties.Name="Connecter Ã  lâ€™appareil sÃ©lectionnÃ©" />
+                                        <Button
+                                            Grid.Column="3"
+                                            MinHeight="40"
+                                            Margin="6,0,0,0"
+                                            Padding="10,6"
                                             Command="{Binding DataContext.ConnectAndSendCommand, ElementName=LayoutRoot}"
                                             CommandParameter="{Binding}"
-                                            Padding="8"
-                                            CornerRadius="8">
-                                            <Border
-                                                 AutomationProperties.Name="Se connecter à cet appareil"
-                                                BorderBrush="Transparent"
-                                                Background="{Binding}">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                    </Grid.ColumnDefinitions>
-
-                                                    <StackPanel
-                                                   VerticalAlignment="Center"
-                                                    HorizontalAlignment="Stretch"
-                                                    Orientation="Horizontal">
-                                                       
-                                                        <StackPanel 
-                                                            Spacing="20"
-                                                                  Orientation="Horizontal">
-                                                            <FontIcon Glyph="&#xE701;" />
-                                                            <TextBlock 
-                                                            FontSize="16"
-                                                            FontWeight="Bold" 
-                                                            Foreground="#F8FAFC" 
-                                                            Text="{Binding Name}" />
-                                                        </StackPanel>
-
-                                                    </StackPanel>
-                                                    <FontIcon 
-                                                        Grid.Column="1"
-                                                        Glyph="&#xE76C;" />
-
-                                                    <!--Button
-                                                        Grid.Column="1"
-                                                        FontSize="20"
-                                                        Foreground="#9e9ebe"
-                                                        Background="Transparent" 
-                                                        FontFamily="Segoe Fluent Icons"
-                                                        Command="{Binding DataContext.ConnectAndSendCommand, ElementName=LayoutRoot}"
-                                                        CommandParameter="{Binding}"
-                                                        Content="&#xE724;"
-                                                        AutomationProperties.Name="Se connecter et envoyer à cet appareil"/-->
-                                                </Grid>
-                                            </Border>
-                                        </Button>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-                    </Grid>
+                                            Content="Connecter et envoyer"
+                                            AutomationProperties.Name="Se connecter Ã  cet appareil puis envoyer les fichiers sÃ©lectionnÃ©s"
+                                            AutomationProperties.HelpText="Disponible lorsquâ€™au moins un fichier est prÃªt Ã  lâ€™envoi." />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
                 </Border>
 
-                <!-- Volet de droite : Demande & Historique -->
-                <Grid Grid.Column="1">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <!-- Demande de transfert entrante -->
-                    <Border 
-                        Grid.Row="0"
-                        Margin="0,0,0,10" 
-                        Padding="15"
-                        Width="250"
-                        Background="#064E3B" 
-                        BorderBrush="#10B981" 
-                        BorderThickness="1" 
-                        CornerRadius="10" 
-                        Visibility="{Binding IsTransferRequestVisible, Converter={StaticResource BoolToVisibility}}">
-                        <Border.Transitions>
-                            <TransitionCollection>
-                                <EntranceThemeTransition IsStaggeringEnabled="True" />
-                            </TransitionCollection>
-                        </Border.Transitions>
-                        <StackPanel>
-                            <TextBlock FontSize="13" FontWeight="Black" Foreground="#10B981" Text="📥 Demande reçue" />
-                            <TextBlock Margin="0,6" FontSize="12" Foreground="#E2E8F0" Text="{Binding TransferRequestSummary}" TextWrapping="Wrap" />
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Button Grid.Column="0" Margin="0,0,5,0" Background="#10B981" Command="{Binding AcceptTransferCommand}" Content="Accepter" AutomationProperties.Name="Accepter le transfert entrant" Foreground="White" />
-                                <Button Grid.Column="1" Margin="5,0,0,0" Background="#EF4444" Command="{Binding RejectTransferCommand}" Content="Refuser" AutomationProperties.Name="Refuser le transfert entrant" Foreground="White" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Historique -->
-                    <Border
-                        Grid.Row="1" 
-                        Padding="15" 
-                        Width="250"
-                        Visibility="{Binding ConnectedVisibilityOn}" 
-                        Background="#111827" 
-                        BorderBrush="#1E293B"
-                        BorderThickness="1"
-                        CornerRadius="12">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0" Margin="0,0,0,10">
-                                <TextBlock VerticalAlignment="Center" FontWeight="Bold" Foreground="#94A3B8" Text="Flux récents" />
-                                <Button HorizontalAlignment="Right" Background="Transparent" Command="{Binding ClearTransferHistoryCommand}" Content="Effacer" AutomationProperties.Name="Effacer l’historique des transferts" Foreground="#64748B" />
-                            </Grid>
-                            <ScrollViewer Grid.Row="1">
-                                <ItemsControl ItemsSource="{Binding RecentTransfers}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border Margin="0,3" Padding="10" Background="#0F172A" CornerRadius="8">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <StackPanel Grid.Column="0">
-                                                        <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="White" Text="{Binding Name}" />
-                                                        <TextBlock Margin="0,2,0,0" FontSize="11" Foreground="#38BDF8" Text="{Binding Type}" />
-                                                    </StackPanel>
-                                                    <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11" FontWeight="Bold" Text="{Binding Status}" />
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
+                <!-- Appareil connectÃ© -->
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                    BorderBrush="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Visibility="{Binding ConnectedVisibilityOn}">
+                    <StackPanel Spacing="10">
+                        <TextBlock
+                            Text="Appareil connectÃ©"
+                            FontSize="17"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                            AutomationProperties.HeadingLevel="Level1" />
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock
+                                    Text="{Binding PeerConnecte.Name}"
+                                    FontWeight="SemiBold"
+                                    TextTrimming="CharacterEllipsis"
+                                    Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" />
+                                <TextBlock
+                                    Text="{Binding SelectedPeerName}"
+                                    FontSize="12"
+                                    Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                            </StackPanel>
+                            <Button
+                                Grid.Column="1"
+                                MinHeight="40"
+                                Padding="12,6"
+                                Command="{Binding SendCommand}"
+                                CommandParameter="{Binding PeerConnecte}"
+                                Content="Envoyer"
+                                AutomationProperties.Name="Envoyer les fichiers Ã  lâ€™appareil connectÃ©" />
+                            <Button
+                                Grid.Column="2"
+                                MinHeight="40"
+                                Margin="8,0,0,0"
+                                Padding="12,6"
+                                Command="{Binding DisconnectCommand}"
+                                CommandParameter="{Binding PeerConnecte}"
+                                Content="DÃ©connecter"
+                                AutomationProperties.Name="DÃ©connecter lâ€™appareil actuel" />
                         </Grid>
-                    </Border>
-                </Grid>
-            </Grid>
-
-            <!-- PROGRESSION DE BAS DE PAGE -->
-            <Border 
-                Grid.Row="3"
-                Padding="20,15" 
-                    Visibility="{Binding ConnectedVisibilityOn}" 
-                Background="#050b1a8c" 
-                BorderBrush="#8f8e8a8f" 
-                BorderThickness="1"
-                CornerRadius="12">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                        <TextBlock FontSize="11" Foreground="#94A3B8" Text="Pair :" />
-                        <TextBlock FontSize="13" FontWeight="SemiBold" Foreground="#F8FAFC" Text="{Binding SelectedPeerName}" />
-                        <TextBlock FontSize="14" FontWeight="Bold" Foreground="#F8FAFC" Text="{Binding MessageText}" />
-                        <TextBlock Margin="0,4,0,8" FontSize="12" Foreground="#64748B" Text="{Binding ProgressText}" />
-                        <TextBlock FontSize="11" Foreground="#94A3B8" Text="{Binding FileClient}" />
-                        <ProgressBar Height="8" Maximum="100" Minimum="0" Value="{Binding TransferProgress}" />
                     </StackPanel>
-                    <Button Grid.Column="1" Margin="20,0,0,0" Background="#2c0712" Command="{Binding CancelTransferCommand}" Content="Annuler" AutomationProperties.Name="Annuler le transfert en cours" Foreground="White" />
-                </Grid>
-            </Border>
-        </Grid>
-        <!-- Page Reload Overlay -->
-        <Border 
-            Background="Black"
-            Opacity="0.9"
-            Visibility="{Binding PageReloadVisible}">
+                </Border>
 
-            <Button 
-                    Padding="0"
-                    AutomationProperties.Name="Recharger la page" 
-                    Command="{Binding ReloadCommand}" 
-                    VerticalAlignment="Center" 
-                    Background="Transparent"
-                    BorderBrush="Transparent"
-                    HorizontalAlignment="Center" >
-                <StackPanel>
+                <!-- Demande de rÃ©ception -->
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                    BorderBrush="{ThemeResource SystemControlForegroundAccentBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Visibility="{Binding IncomingRequestVisibility}">
+                    <StackPanel Spacing="10">
+                        <TextBlock
+                            Text="Demande de rÃ©ception"
+                            FontSize="17"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                            AutomationProperties.HeadingLevel="Level1" />
+                        <TextBlock
+                            Text="{Binding TransferRequestSummary}"
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                            AutomationProperties.LiveSetting="Polite" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button
+                                MinWidth="110"
+                                MinHeight="42"
+                                Command="{Binding AcceptTransferCommand}"
+                                Content="Accepter"
+                                AutomationProperties.Name="Accepter le transfert entrant" />
+                            <Button
+                                MinWidth="110"
+                                MinHeight="42"
+                                Command="{Binding RejectTransferCommand}"
+                                Content="Refuser"
+                                AutomationProperties.Name="Refuser le transfert entrant" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
 
-                    <TextBlock
-                        FontWeight="Black" 
-                        FontFamily="Corbel"
-                        Padding="1"
-                        Foreground="#9e9ebe"  
-                        FontSize="20"
-                        Text="Assurez-vous de garder votre wifi allumé"/>
-                    <TextBlock
-                        FontWeight="Black" 
-                        FontFamily="Corbel"
-                        Foreground="#9e9ebe" 
-                        TextTrimming="CharacterEllipsis"
-                        FontSize="24"
-                        HorizontalAlignment="Center"
-                        Padding="1"
-                        Text="Appuyer ici pour recharger"/>
+                <!-- ActivitÃ© et progression -->
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                    BorderBrush="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            Text="ActivitÃ©"
+                            FontSize="17"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                            AutomationProperties.HeadingLevel="Level1" />
+                        <TextBlock
+                            Text="{Binding MessageText}"
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                            AutomationProperties.LiveSetting="Polite"
+                            AutomationProperties.Name="Ã‰tat de lâ€™opÃ©ration" />
+                        <TextBlock
+                            Text="{Binding ProgressText}"
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                        <TextBlock
+                            Text="{Binding FileClient}"
+                            TextTrimming="CharacterEllipsis"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            AutomationProperties.Name="Fichier reÃ§u" />
+                        <ProgressBar
+                            Minimum="0"
+                            Maximum="100"
+                            Value="{Binding CounterClient}"
+                            AutomationProperties.Name="Progression de la rÃ©ception" />
+                        <TextBlock
+                            Text="{Binding FileServer}"
+                            TextTrimming="CharacterEllipsis"
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            AutomationProperties.Name="Fichier envoyÃ©" />
+                        <ProgressBar
+                            Minimum="0"
+                            Maximum="100"
+                            Value="{Binding CounterServer}"
+                            AutomationProperties.Name="Progression de lâ€™envoi" />
+                        <Button
+                            HorizontalAlignment="Right"
+                            MinHeight="40"
+                            Padding="12,6"
+                            Command="{Binding CancelTransferCommand}"
+                            Content="Annuler"
+                            AutomationProperties.Name="Annuler le transfert ou la demande en cours" />
+                    </StackPanel>
+                </Border>
 
-                </StackPanel>
-            </Button>
+                <!-- Historique des transferts -->
+                <Border
+                    Padding="16"
+                    Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+                    BorderBrush="{ThemeResource SystemControlBackgroundChromeMediumBrush}"
+                    BorderThickness="1"
+                    CornerRadius="12">
+                    <StackPanel Spacing="8">
+                        <Grid>
+                            <TextBlock
+                                Text="Transferts rÃ©cents"
+                                FontSize="17"
+                                FontWeight="SemiBold"
+                                Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                                AutomationProperties.HeadingLevel="Level1" />
+                            <Button
+                                HorizontalAlignment="Right"
+                                MinHeight="40"
+                                Padding="10,6"
+                                Command="{Binding ClearTransferHistoryCommand}"
+                                Content="Effacer lâ€™historique"
+                                AutomationProperties.Name="Effacer lâ€™historique des transferts"
+                                Visibility="{Binding RecentTransfersVisibility}" />
+                        </Grid>
+                        <TextBlock
+                            Text="Les transferts terminÃ©s apparaÃ®tront ici."
+                            Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"
+                            Visibility="{Binding EmptyRecentTransfersVisibility}" />
+                        <ListView
+                            ItemsSource="{Binding RecentTransfers}"
+                            SelectionMode="None"
+                            IsTabStop="False"
+                            MaxHeight="250"
+                            AutomationProperties.Name="Historique des transferts">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnSpacing="12" MinHeight="48">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock
+                                                Text="{Binding Name}"
+                                                FontWeight="SemiBold"
+                                                TextTrimming="CharacterEllipsis"
+                                                Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}" />
+                                            <TextBlock
+                                                Text="{Binding Type}"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                                        </StackPanel>
+                                        <TextBlock
+                                            Grid.Column="1"
+                                            Text="{Binding Status}"
+                                            VerticalAlignment="Center"
+                                            FontWeight="SemiBold"
+                                            Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                                            AutomationProperties.Name="RÃ©sultat du transfert" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border
+            Grid.Row="1"
+            Margin="16"
+            Padding="24"
+            Background="{ThemeResource SystemControlBackgroundAltHighBrush}"
+            BorderBrush="{ThemeResource SystemControlForegroundAccentBrush}"
+            BorderThickness="3"
+            CornerRadius="14"
+            IsHitTestVisible="False"
+            Visibility="{Binding DropOverlayVisibility}"
+            AutomationProperties.Name="Zone de dÃ©pÃ´t de fichiers">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <FontIcon
+                    Glyph="&#xE74A;"
+                    FontSize="32"
+                    HorizontalAlignment="Center"
+                    Foreground="{ThemeResource SystemControlForegroundAccentBrush}"
+                    AutomationProperties.AccessibilityView="Raw" />
+                <TextBlock
+                    Text="DÃ©posez les fichiers pour les ajouter Ã  la liste"
+                    FontSize="18"
+                    FontWeight="SemiBold"
+                    TextAlignment="Center"
+                    TextWrapping="Wrap"
+                    Foreground="{ThemeResource SystemControlForegroundBaseHighBrush}"
+                    AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
         </Border>
-        
     </Grid>
 </Window>

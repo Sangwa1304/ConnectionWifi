@@ -5,7 +5,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using ServiceTcpChared;
 using System;
-using System.Drawing;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -22,7 +21,6 @@ using Windows.Storage;
 using Windows.Storage.Pickers;
 using WindowsWifiLibrary.Models;
 using WindowsWifiLibrary.Services;
-using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace ShareBoost.UI.ViewModels;
 public partial class MainViewModel : INotifyPropertyChanged, IDisposable
@@ -183,43 +181,15 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     public string DropStatusText { get => _dropStatusText; set { _dropStatusText = value; OnPropertyChanged(nameof(DropStatusText)); } }
     public string MessageText { get => _messageText; set { _messageText = value; OnPropertyChanged(nameof(MessageText)); } }
     public string ProgressText { get => _progressText; set { _progressText = value; OnPropertyChanged(nameof(ProgressText)); } }
-    public string CurrentStateDisplayText => _wifiService.CurrentStatus.ToString();
-    public bool isnight = false;
-    public SolidColorBrush CurrentStateDisplayColor
+    public string CurrentStateDisplayText => _wifiService.CurrentStatus switch
     {
-        get 
-        {
-            if(isnight)
-            {
-                return ColorStatus(nameof(CurrentStateDisplayColor), Color.Black); 
-            }
-            return ColorStatus(nameof(CurrentStateDisplayColor));
-        }
-    }
-    private SolidColorBrush ColorStatus(string name,Color? color = null)
-    {
-        var r =color?? GetColor();
-        _ = WaitAnimate(name);
-        return new(Windows.UI.Color.FromArgb(r.A, r.R, r.G, r.B));
-    }
-
-    private Color GetColor()
-    {
-        return _wifiService.CurrentStatus switch
-        {
-
-            WifiDirectStatus.Closed => Color.Orange,
-            WifiDirectStatus.Connected => Color.Green,
-            WifiDirectStatus.Disconnected => Color.Yellow,
-            _ =>Color.Red,
-        };
-    }
-    private async Task WaitAnimate(string name)
-    {
-        await Task.Delay(1000);
-        isnight = !isnight;
-        OnPropertyChanged(name);
-    }
+        WifiDirectStatus.Connected => "Connecté à un appareil",
+        WifiDirectStatus.Disconnected => "Wi-Fi Direct prêt",
+        WifiDirectStatus.Aborded => "Connexion interrompue",
+        WifiDirectStatus.Closed => "Initialisation du Wi-Fi Direct",
+        WifiDirectStatus.NoArdwareSupported => "Aucun adaptateur Wi-Fi Direct compatible",
+        _ => "État Wi-Fi Direct inconnu"
+    };
 
     public string DownloadFolder
     {
@@ -233,7 +203,17 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     }
     public string DownloadFolderDisplay => string.IsNullOrWhiteSpace(DownloadFolder) ? "Dossier par défaut" : DownloadFolder;
     public double TransferProgress { get => _transferProgress; set { _transferProgress = value; OnPropertyChanged(nameof(TransferProgress)); } }
-    public bool IsFileOverDropZone { get => _isFileOverDropZone; set { _isFileOverDropZone = value; OnPropertyChanged(nameof(IsFileOverDropZone)); } }
+    public bool IsFileOverDropZone
+    {
+        get => _isFileOverDropZone;
+        set
+        {
+            if (_isFileOverDropZone == value) return;
+            _isFileOverDropZone = value;
+            OnPropertyChanged(nameof(IsFileOverDropZone));
+            OnPropertyChanged(nameof(DropOverlayVisibility));
+        }
+    }
 
     public ObservableCollection<WifiDirectPeer> DiscoveredDevices { get; } = [];
     public ObservableCollection<FileI> PendingFiles { get; } = [];
@@ -256,8 +236,15 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
     public bool HasRecentTransfers => RecentTransfers.Count > 0;
+    public bool NoRecentTransfers => !HasRecentTransfers;
     public bool HasPendingFiles => PendingFiles.Count > 0;
     public bool NoPendingFiles => !HasPendingFiles;
+    public Visibility PendingFilesVisibility => HasPendingFiles ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EmptyPendingFilesVisibility => NoPendingFiles ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RecentTransfersVisibility => HasRecentTransfers ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility EmptyRecentTransfersVisibility => NoRecentTransfers ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility IncomingRequestVisibility => IsTransferRequestVisible ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility DropOverlayVisibility => IsFileOverDropZone ? Visibility.Visible : Visibility.Collapsed;
     public bool NoHardwardSuported => _wifiService.CurrentStatus == WifiDirectStatus.NoArdwareSupported;
 
     public Visibility PageReloadVisible => NoHardwardSuported ? Visibility.Visible : Visibility.Collapsed;
@@ -272,6 +259,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(IncomingTransferSession));
             OnPropertyChanged(nameof(IsTransferRequestVisible));
             OnPropertyChanged(nameof(TransferRequestSummary));
+            OnPropertyChanged(nameof(IncomingRequestVisibility));
         }
     }
     
@@ -314,7 +302,6 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<WifiDirectInvitationEventArgs>? InvitationRequested;
-    Func<DispatcherQueue> Dispatcher;
 
     public MainViewModel(IntPtr windowHandle)
     {
@@ -332,9 +319,9 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         OpenFileCommand = new RelayCommand(param => OpenFile(param as FileI), param => param is FileI);
         PlayThisCommand = new RelayCommand(param => PlayFile(param as FileI), param => param is FileI);
         DeleteItemCommand = new RelayCommand(param => DeleteItem(param as FileI), param => param is FileI);
-        ConnectAndSendCommand = new RelayCommand(async param => await ConnectAndSendAsync(param as WifiDirectPeer), CanStartPeerOperation);
+        ConnectAndSendCommand = new RelayCommand(async param => await ConnectAndSendAsync(param as WifiDirectPeer), CanConnectAndSend);
         ConnectCommand = new RelayCommand(async param => await ConnectAsync(param as WifiDirectPeer), CanStartPeerOperation);
-        SendCommand = new RelayCommand(async param => await SendAsync(param as WifiDirectPeer), CanStartPeerOperation);
+        SendCommand = new RelayCommand(async param => await SendAsync(param as WifiDirectPeer), CanSend);
         DisconnectCommand = new RelayCommand(async param => await DisconnectAsync(param as WifiDirectPeer), param => param is WifiDirectPeer);
         AcceptTransferCommand = new RelayCommand(async _ => await AcceptIncomingTransferAsync(), _ => IncomingTransferSession != null);
         RejectTransferCommand = new RelayCommand(_ => RejectIncomingTransfer(), _ => IncomingTransferSession != null);
@@ -342,8 +329,24 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         OpenDownloadFolderCommand = new RelayCommand(_ => OpenDownloadFolder(), _ => !string.IsNullOrWhiteSpace(DownloadFolder));
         ClearTransferHistoryCommand = new RelayCommand(_ => ClearTransferHistory(), _ => RecentTransfers.Count > 0);
 
-        PendingFiles.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasPendingFiles)); OnPropertyChanged(nameof(NoPendingFiles)); UpdateDropStatus(); };
-        RecentTransfers.CollectionChanged += (_, __) => { OnPropertyChanged(nameof(HasRecentTransfers)); ((RelayCommand)ClearTransferHistoryCommand).RaiseCanExecuteChanged(); };
+        PendingFiles.CollectionChanged += (_, __) =>
+        {
+            OnPropertyChanged(nameof(HasPendingFiles));
+            OnPropertyChanged(nameof(NoPendingFiles));
+            OnPropertyChanged(nameof(PendingFilesVisibility));
+            OnPropertyChanged(nameof(EmptyPendingFilesVisibility));
+            UpdateDropStatus();
+            ((RelayCommand)ConnectAndSendCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)SendCommand).RaiseCanExecuteChanged();
+        };
+        RecentTransfers.CollectionChanged += (_, __) =>
+        {
+            OnPropertyChanged(nameof(HasRecentTransfers));
+            OnPropertyChanged(nameof(NoRecentTransfers));
+            OnPropertyChanged(nameof(RecentTransfersVisibility));
+            OnPropertyChanged(nameof(EmptyRecentTransfersVisibility));
+            ((RelayCommand)ClearTransferHistoryCommand).RaiseCanExecuteChanged();
+        };
 
         WireEvents();
         _ = InitializeAsync();
@@ -398,6 +401,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     private bool CanStartPeerOperation(object? parameter) => parameter is WifiDirectPeer && !_isTransferActive && !_disposed;
+    private bool CanConnectAndSend(object? parameter) => CanStartPeerOperation(parameter) && PendingFiles.Count > 0;
+    private bool CanSend(object? parameter) => CanStartPeerOperation(parameter) && PendingFiles.Count > 0;
 
     private void RaiseTransferCommandStates()
     {
@@ -509,34 +514,46 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public void AddFiles(IEnumerable<string>? files)
     {
+        if (files is null || _disposed)
+        {
+            return;
+        }
 
-        if (files == null) return;
+        int added = 0;
+        int skipped = 0;
 
         foreach (var rawPath in files.Where(p => !string.IsNullOrWhiteSpace(p)))
         {
-            var candidate = Path.GetFullPath(rawPath.Trim());
-            if (!PendingFiles.Any(item => string.Equals(item.PathFile, candidate, StringComparison.OrdinalIgnoreCase)))
+            try
             {
+                var candidate = Path.GetFullPath(rawPath.Trim());
+                if (PendingFiles.Any(item => string.Equals(item.PathFile, candidate, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
                 var fii = new FileI(candidate);
                 if (!PendingFiles.Contains(fii))
                 {
                     PendingFiles.Add(fii);
-                    FileMiIcon.Add(fii, Pup,()=>_dispatcherQueue);
-
+                    added++;
                 }
             }
+            catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
+            {
+                skipped++;
+                System.Diagnostics.Debug.WriteLine($"Impossible d’ajouter le fichier « {rawPath} » : {ex.Message}");
+            }
         }
-    }
 
-    private async void Pup(FileI fii)
-    {
-        
-        _dispatcherQueue.TryEnqueue(() =>
+        if (skipped > 0)
         {
-            if (PendingFiles.Contains(fii)) PendingFiles.Remove(fii);
-            PendingFiles.Add(fii);
-
-        });
+            MessageText = $"{added} élément(s) ajouté(s), {skipped} ignoré(s) car indisponible(s).";
+        }
+        else if (added > 0)
+        {
+            MessageText = $"{added} élément(s) prêt(s) à l’envoi.";
+        }
     }
 
     private async Task ConnectAndSendAsync(WifiDirectPeer? target)
@@ -736,15 +753,32 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     private void ClearTransferRequest() => IncomingTransferSession = null;
     private void DeleteAll() => PendingFiles.Clear();
     private void DeleteItem(FileI? file) { if (file != null) PendingFiles.Remove(file); }
-    private void OpenDirectory(FileI? file) 
+    private void OpenDirectory(FileI? file)
     {
+        if (file is null)
+        {
+            return;
+        }
+
         try
         {
-            var p = Directory.GetParent(file?.PathFile ?? "");
-            Process.Start(new ProcessStartInfo { FileName = p?.FullName,Arguments=file?.PathFile, UseShellExecute = true });
+            if (file.Type == TypeFile.Folder)
+            {
+                Process.Start(new ProcessStartInfo { FileName = file.PathFile, UseShellExecute = true });
+            }
+            else
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = $"/select,\"{file.PathFile}\"",
+                    UseShellExecute = true
+                });
+            }
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {
+            MessageText = $"Impossible d’ouvrir l’emplacement : {ex.Message}";
         }
     }
     private void OpenFile(FileI? file)
@@ -762,11 +796,12 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
                 Process.Start(new ProcessStartInfo { FileName = file?.PathFile, UseShellExecute = true });
             }
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {
+            MessageText = $"Impossible d’ouvrir ce fichier : {ex.Message}";
         }
     }
-    CancellationTokenSource _ctsPlayer;
+    private CancellationTokenSource? _ctsPlayer;
     private void PlayFile(FileI? file,bool Control = true)
     {
         if(_ctsPlayer == null || _ctsPlayer.IsCancellationRequested)
@@ -775,7 +810,18 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     }
 
-    private void OpenDownloadFolder() => Process.Start(new ProcessStartInfo { FileName = DownloadFolder, UseShellExecute = true });
+    private void OpenDownloadFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(DownloadFolder);
+            Process.Start(new ProcessStartInfo { FileName = DownloadFolder, UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            MessageText = $"Impossible d’ouvrir le dossier de réception : {ex.Message}";
+        }
+    }
     private void ClearTransferHistory() => RecentTransfers.Clear();
     private void ReloadPage() => _ = InitializeAsync(true);
     private void RetrySearch() => StartDiscovery();
@@ -945,70 +991,87 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
     }
     private Window? ChildWindow = null;
-    public MediaSource _PlayerSource = default;
-    public MediaSource PlayerSource
+    private MediaSource? _playerSource;
+    public MediaSource? PlayerSource
     {
-        get => _PlayerSource;
+        get => _playerSource;
 
         set
         {
-            _PlayerSource = value;
+            _playerSource = value;
 
             OnPropertyChanged(nameof(PlayerSource));
         }
     }
-    public bool _OpenTeacher = false;
-    public bool OpenTeacher
-    {
-        get => _OpenTeacher;
-
-        set
-        {
-            _OpenTeacher = value;
-
-            OnPropertyChanged(nameof(OpenTeacher));
-        }
-    }
-    public event Action ShowTeach;
     public void PopIsClose()
     {
         PlayerSource?.Dispose();
     }
     public async Task PlayFile(string path, CancellationToken token, bool control = true)
     {
-
-        PlayerSource?.Dispose();
-        if (string.IsNullOrEmpty(path)) return;
-        PlayerSource = MediaSource.CreateFromStorageFile(await StorageFile.GetFileFromPathAsync(path));
-        
-        if(ChildWindow != null) 
+        if (string.IsNullOrWhiteSpace(path) || _disposed)
         {
-            if (control) ChildWindow?.AppWindow.ResizeClient(new SizeInt32(400, 100));
-            else ChildWindow?.AppWindow.ResizeClient(new SizeInt32(500, 450));
-            ((ChildWindow.Content as Page)?.Content as MediaPlayerElement)?.AreTransportControlsEnabled = control;
-            ((ChildWindow.Content as Page)?.Content as MediaPlayerElement)?.Source = PlayerSource;
             return;
         }
 
-        ChildWindow = new Window()
+        try
         {
-            ExtendsContentIntoTitleBar = true,
-            SystemBackdrop = new MicaBackdrop(),
-            Content = new Page()
+            PlayerSource?.Dispose();
+            PlayerSource = MediaSource.CreateFromStorageFile(
+                await StorageFile.GetFileFromPathAsync(path));
+
+            if (ChildWindow != null)
             {
-                Content = new MediaPlayerElement()
+                ChildWindow.AppWindow.ResizeClient(control
+                    ? new SizeInt32(420, 120)
+                    : new SizeInt32(560, 420));
+                if (ChildWindow.Content is Page { Content: MediaPlayerElement player })
                 {
-                    Source = PlayerSource,
-                    AutoPlay = true,
-                    AreTransportControlsEnabled = control
+                    player.AreTransportControlsEnabled = control;
+                    player.Source = PlayerSource;
                 }
+
+                return;
             }
-        };
-        if (control)ChildWindow?.AppWindow.ResizeClient(new SizeInt32(400,100));
-        else ChildWindow?.AppWindow.ResizeClient(new SizeInt32(500, 450));
-        ChildWindow?.Activate();
-        ChildWindow?.Closed += (_, _) => { ChildWindow = null; PlayerSource?.Dispose(); };
-        token.Register(() => PlayerSource?.Dispose());
-        token.Register(() => { ChildWindow?.Close(); ChildWindow = null; });
+
+            ChildWindow = new Window
+            {
+                SystemBackdrop = new MicaBackdrop(),
+                Content = new Page
+                {
+                    Content = new MediaPlayerElement
+                    {
+                        Source = PlayerSource,
+                        AutoPlay = true,
+                        AreTransportControlsEnabled = control
+                    }
+                }
+            };
+            ChildWindow.AppWindow.ResizeClient(control
+                ? new SizeInt32(420, 120)
+                : new SizeInt32(560, 420));
+            ChildWindow.Activate();
+            ChildWindow.Closed += (_, _) =>
+            {
+                ChildWindow = null;
+                PlayerSource?.Dispose();
+                PlayerSource = default;
+            };
+            token.Register(() => PlayerSource?.Dispose());
+            token.Register(() =>
+            {
+                ChildWindow?.Close();
+                ChildWindow = null;
+            });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            PlayerSource?.Dispose();
+            PlayerSource = default;
+            _dispatcherQueue.TryEnqueue(() => MessageText = $"Impossible de lire ce fichier : {ex.Message}");
+        }
     }
 }

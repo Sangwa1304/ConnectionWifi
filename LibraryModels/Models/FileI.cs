@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace LibraryMI.Models;
 
@@ -12,13 +11,29 @@ public partial class FileI : IEquatable<FileI?>
     public bool IsMusic => FileIs == Types.Music;
     public bool IsVideo => FileIs == Types.Video;
     public readonly Types FileIs = Types.Others;
-    [ObservableProperty]
-    public object? IconeMemory { get; set; } = null;
     public string PathFile { get; }
     public string Name { get; }
     public long Size { get; }
     public string Sizee => Type == TypeFile.Folder ? "Dossier" : FormatBytes(Size);
     public TypeFile Type { get; }
+
+    public string IconGlyph => Type == TypeFile.Folder
+        ? "\uE8B7"
+        : FileIs switch
+        {
+            Types.Music => "\uE8D6",
+            Types.Video => "\uE714",
+            _ => Path.GetExtension(PathFile).ToLowerInvariant() switch
+            {
+                ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp" => "\uEB9F",
+                ".pdf" => "\uEA90",
+                ".zip" or ".7z" or ".rar" or ".gz" => "\uE8D7",
+                ".doc" or ".docx" or ".txt" or ".rtf" or ".md" => "\uE8A5",
+                ".xls" or ".xlsx" or ".csv" => "\uE9D2",
+                ".ppt" or ".pptx" => "\uE8A5",
+                _ => "\uE8A5"
+            }
+        };
 
     public static IEnumerable<string> AsEnumerable(IEnumerable<FileI> Enums)
     {
@@ -32,11 +47,12 @@ public partial class FileI : IEquatable<FileI?>
             var inf = new FileInfo(path);
             PathFile = path;
             Name = inf.Name;
-            if(musicExtention.Contains(Path.GetExtension(path)))
+            string extension = Path.GetExtension(path);
+            if (string.Equals(extension, ".mp3", StringComparison.OrdinalIgnoreCase))
             {
                 FileIs = Types.Music;
             }
-            else if (VideoExtention.Contains(Path.GetExtension(path)))
+            else if (string.Equals(extension, ".mp4", StringComparison.OrdinalIgnoreCase))
             {
                 FileIs = Types.Video;
             }
@@ -82,14 +98,6 @@ public partial class FileI : IEquatable<FileI?>
     {
         return HashCode.Combine(PathFile, Name, Size);
     }
-    public string[] musicExtention =
-        [
-        ".mp3"
-        ];
-    public string[] VideoExtention =
-        [
-        ".mp4"
-        ];
     public static bool operator ==(FileI? left, FileI? right)
     {
         return EqualityComparer<FileI>.Default.Equals(left, right);
