@@ -6,6 +6,7 @@ namespace ServiceTcpChared;
 
 public class TcpServerStreaming : StreamingData, ITcpStreaming
 {
+    private static readonly TimeSpan AcceptTimeout = TimeSpan.FromSeconds(45);
     private TcpListener? Server;
     private TcpClient? Client;
 
@@ -27,11 +28,13 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
 
     public async Task StartConnection(CancellationToken token)
     {
-        Stop();
-
         TcpListener server = new(Address, Port);
 
         Server = server;
+
+        using CancellationTokenSource timeout =
+            CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(AcceptTimeout);
 
         try
         {
@@ -42,7 +45,7 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
 
             // Attente d'une connexion entrante.
             TcpClient client =
-                await server.AcceptTcpClientAsync(token)
+                await server.AcceptTcpClientAsync(timeout.Token)
                     .ConfigureAwait(false);
 
             Client = client;
@@ -71,12 +74,22 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
         {
             Debug.WriteLine("Écoute TCP interrompue.");
         }
+        catch (OperationCanceledException ex)
+            when (!token.IsCancellationRequested)
+        {
+            TimeoutException timeoutException = new(
+                $"Aucun canal TCP entrant n'a été établi sur le port {Port} après {AcceptTimeout.TotalSeconds:0} secondes.",
+                ex);
+            ConnectionClosed?.Invoke();
+            throw timeoutException;
+        }
         catch (Exception ex)
         {
             Debug.WriteLine(
                 $"Erreur du serveur TCP : {ex}");
 
             ConnectionClosed?.Invoke();
+            throw;
         }
         finally
         {
@@ -102,23 +115,8 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
         Client = null;
     }
 
-    public void Add(List<string> items)
+    public Task<bool> EnqueueAsync(IEnumerable<string> items, CancellationToken token)
     {
-        if (items == null || items.Count == 0)
-        {
-            return;
-        }
-
-        _ = FilesToSend.AddAsync(items.ToArray());
-    }
-
-    public void Add(string item)
-    {
-        if (string.IsNullOrWhiteSpace(item))
-        {
-            return;
-        }
-
-        _ = FilesToSend.AddAsync([item]);
+        return QueueSendAsync(items, token);
     }
 }
