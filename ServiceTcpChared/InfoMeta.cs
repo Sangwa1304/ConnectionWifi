@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using System.Security.Cryptography;
 
 namespace ServiceTcpChared;
@@ -59,7 +59,7 @@ public class InfoMeta : IEquatable<InfoMeta?>
                 return null;
             }
 
-            return new InfoMeta(metadata.NameWithExtension, metadata.Length, metadata.HachInfoDescription, metadata.SessionId, metadata.FileHash);
+            return new InfoMeta(metadata.NameWithExtension!, metadata.Length, metadata.HachInfoDescription, metadata.SessionId!, metadata.FileHash!);
         }
         catch (Exception ex)
         {
@@ -159,6 +159,7 @@ public class InfoMeta : IEquatable<InfoMeta?>
         }
 
         string? sessionId = null;
+        long totalLength = 0;
         List<InfoMeta> infoMetas = new();
         foreach (var inf in liste)
         {
@@ -179,7 +180,21 @@ public class InfoMeta : IEquatable<InfoMeta?>
                 throw new JsonException("L'empreinte du fichier est invalide.");
             }
 
-            infoMetas.Add(new(inf.NameWithExtension!, inf.Length, inf.HachInfoDescription, inf.SessionId, inf.FileHash));
+            try
+            {
+                totalLength = checked(totalLength + inf.Length);
+            }
+            catch (OverflowException ex)
+            {
+                throw new JsonException("La taille totale de la session est invalide.", ex);
+            }
+
+            if (totalLength > MaxFileLength)
+            {
+                throw new JsonException("La taille totale de la session dépasse la limite autorisée.");
+            }
+
+            infoMetas.Add(new(inf.NameWithExtension!, inf.Length, inf.HachInfoDescription, inf.SessionId, inf.FileHash!));
         }
 
         return new([.. infoMetas]);

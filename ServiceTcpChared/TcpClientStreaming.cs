@@ -39,8 +39,6 @@ public class TcpClientStreaming : StreamingData, ITcpStreaming
 
     public async Task StartConnection(CancellationToken token)
     {
-        Stop();
-
         using CancellationTokenSource timeout =
             CancellationTokenSource.CreateLinkedTokenSource(token);
 
@@ -119,6 +117,7 @@ public class TcpClientStreaming : StreamingData, ITcpStreaming
                 $"Erreur du client TCP : {ex}");
 
             ConnectionClosed?.Invoke();
+            throw;
         }
         finally
         {
