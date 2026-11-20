@@ -12,6 +12,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -39,16 +40,21 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         public event Action? FileClientChange;
         private Task? _serverTask;
         private Task? _clientTask;
+        private CancellationTokenSource? _sessionCancellation;
+        private volatile bool _isRunning;
+        internal bool IsRunning => _isRunning;
 
         internal void Stop()
         {
+            _isRunning = false;
+            _sessionCancellation?.Cancel();
             ServerInstance?.Stop();
             ClientInstance?.Stop();
         }
 
-        private bool ServerClient_FilesComming(IEnumerable<InfoMeta> arg)
+        private Task<bool> ServerClient_FilesComming(IEnumerable<InfoMeta> arg)
         {
-            return TransfertRequest?.Invoke(new(arg)).GetAwaiter().GetResult() ?? false;
+            return TransfertRequest?.Invoke(new(arg)) ?? Task.FromResult(false);
         }
 
         private void ServerClient_CounterChange() => CounterServerChange?.Invoke();
@@ -56,22 +62,25 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         private void ServerClient_FileChange() => FileClientChange?.Invoke();
         private void ServerInstance_FileChange() => FileServerChange?.Invoke();
 
-        internal Task SendFilesAsync(IEnumerable<FileI> pendingFiles, CancellationToken token)
+        internal Task<bool> SendFilesAsync(IEnumerable<FileI> pendingFiles, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             List<string> f = [.. from e in pendingFiles select e.PathFile];
-            if (ServerInstance is null)
+            if (ServerInstance is null || !IsRunning)
             {
-                throw new InvalidOperationException("Le service TCP n'est pas démarré.");
+                throw new InvalidOperationException("Les canaux TCP ne sont pas prêts. La reconnexion est en cours.");
             }
 
-            ServerInstance.Add(f);
-            return Task.CompletedTask;
+            return ServerInstance.EnqueueAsync(f, token);
         }
 
-        internal void Start(WifiDirectConnectionEventArgs e, CancellationToken token)
+        internal async Task StartAsync(WifiDirectConnectionEventArgs e, CancellationToken token)
         {
             Stop();
+            _sessionCancellation?.Dispose();
+            _sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+            CancellationToken sessionToken = _sessionCancellation.Token;
+
             ServerInstance = new(e.ServerMode);
             ClientInstance = new(e.RemoteIpAddress, e.ServerMode);
 
@@ -84,13 +93,56 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
             if (e.ServerMode)
             {
-                _serverTask = ServerInstance.StartConnection(token);
-                _clientTask = ClientInstance.StartConnection(token);
+                _serverTask = ServerInstance.StartConnection(sessionToken);
+                _clientTask = ClientInstance.StartConnection(sessionToken);
             }
             else
             {
-                _clientTask = ClientInstance.StartConnection(token);
-                _serverTask = ServerInstance.StartConnection(token);
+                _clientTask = ClientInstance.StartConnection(sessionToken);
+                _serverTask = ServerInstance.StartConnection(sessionToken);
+            }
+
+            _isRunning = true;
+            Task serverTask = _serverTask;
+            Task clientTask = _clientTask;
+            Task firstCompleted = await Task.WhenAny(serverTask, clientTask).ConfigureAwait(false);
+            Exception? failure = null;
+
+            try
+            {
+                await firstCompleted.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (sessionToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                _sessionCancellation.Cancel();
+                ServerInstance?.Stop();
+                ClientInstance?.Stop();
+            }
+
+            try
+            {
+                await Task.WhenAll(serverTask, clientTask).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (sessionToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                failure ??= ex;
+            }
+
+            _isRunning = false;
+
+            if (failure is not null)
+            {
+                ExceptionDispatchInfo.Capture(failure).Throw();
             }
         }
     }
@@ -229,9 +281,11 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private CancellationTokenSource? _ctsWatcher;
     private CancellationTokenSource? _ctsTransfert;
+    private CancellationTokenSource? _ctsNetworkSession;
     private readonly SemaphoreSlim _transferGate = new(1, 1);
     private readonly SemaphoreSlim _networkStartGate = new(1, 1);
     private TaskCompletionSource<bool>? _incomingTransferDecision;
+    private int _invitationPromptActive;
     private bool _isTransferActive;
     private bool _disposed;
     public bool Accept { get; private set; }
@@ -317,10 +371,17 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            return await decision.Task.WaitAsync(_ctsTransfert?.Token ?? CancellationToken.None);
+            return await decision.Task.WaitAsync(
+                TimeSpan.FromMinutes(5),
+                _ctsNetworkSession?.Token ?? CancellationToken.None);
         }
         catch (OperationCanceledException)
         {
+            return false;
+        }
+        catch (TimeoutException)
+        {
+            _dispatcherQueue.TryEnqueue(() => MessageText = "La demande de réception a expiré.");
             return false;
         }
         finally
@@ -360,6 +421,7 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _wifiService.StatusChanged += WifiService_StatusChanged;
         _wifiService.PublicherStatusChanged += _wifiService_PublicherStatusChanged;
         _wifiService.WatcherStatusChanged += _wifiService_WatcherStatusChanged;
+        _wifiService.Error += WifiService_Error;
         _wifiService.PeerDiscovered += WifiService_PeerDiscovered;
         _wifiService.PeerUpdated += WifiService_PeerUpdated;
         _wifiService.PeerRemoved += WifiService_PeerRemoved;
@@ -389,7 +451,12 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
     
     private async Task InitializeAsync(bool reload = false)
     {
-        _ctsWatcher ??= new();
+        if (reload || _ctsWatcher is null || _ctsWatcher.IsCancellationRequested)
+        {
+            _ctsWatcher?.Cancel();
+            _ctsWatcher?.Dispose();
+            _ctsWatcher = new CancellationTokenSource();
+        }
 
         await _wifiService.InitializeAsync(_ctsWatcher.Token);
         if (NoHardwardSuported)
@@ -479,6 +546,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             bool connected = await _wifiService.ConnectToPeerAsync(target, _ctsConnection.Token);
             if (!connected)
             {
+                PeerConnecte = null;
+                SelectedPeerName = "Aucun appareil sélectionné";
                 MessageText = "La connexion à l’appareil a échoué.";
             }
 
@@ -510,6 +579,12 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        if (!ServerClientInstance.IsRunning)
+        {
+            MessageText = "Les canaux TCP ne sont pas prêts. Déconnectez puis reconnectez l’appareil pour rétablir le transfert.";
+            return;
+        }
+
         if (!await _transferGate.WaitAsync(0))
         {
             MessageText = "Un transfert est déjà en cours.";
@@ -523,8 +598,8 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             _ctsTransfert?.Cancel();
             _ctsTransfert?.Dispose();
             _ctsTransfert = new CancellationTokenSource();
-            await ServerClientInstance.SendFilesAsync(PendingFiles.ToArray(), _ctsTransfert.Token);
-            MessageText = "Transfert prêt à démarrer.";
+            bool accepted = await ServerClientInstance.SendFilesAsync(PendingFiles.ToArray(), _ctsTransfert.Token);
+            MessageText = accepted ? "Transfert terminé." : "Le transfert a été refusé par le destinataire.";
         }
         catch (OperationCanceledException)
         {
@@ -544,22 +619,70 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void WifiService_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e)
     {
-        _dispatcherQueue.TryEnqueue(() => _ = StartNetworkSessionAsync(e));
+        if (!_dispatcherQueue.TryEnqueue(() => _ = StartNetworkSessionAsync(e)))
+        {
+            ServerClientInstance.Stop();
+            _wifiService.Stop();
+        }
     }
 
     private async Task StartNetworkSessionAsync(WifiDirectConnectionEventArgs e)
     {
-        if (_disposed || !await _networkStartGate.WaitAsync(0))
+        if (_disposed)
         {
             return;
         }
 
+        await _networkStartGate.WaitAsync();
         try
         {
-            _ctsTransfert?.Cancel();
-            _ctsTransfert?.Dispose();
-            _ctsTransfert = new CancellationTokenSource();
-            ServerClientInstance.Start(e, _ctsTransfert.Token);
+            if (_disposed)
+            {
+                return;
+            }
+
+            _ctsNetworkSession?.Cancel();
+            _ctsNetworkSession?.Dispose();
+            _ctsNetworkSession = new CancellationTokenSource();
+            CancellationToken sessionToken = _ctsNetworkSession.Token;
+            Exception? lastFailure = null;
+
+            for (int attempt = 1; attempt <= 4 && !sessionToken.IsCancellationRequested; attempt++)
+            {
+                try
+                {
+                    MessageText = attempt == 1
+                        ? "Connexion des canaux de transfert…"
+                        : $"Rétablissement des canaux TCP ({attempt}/4)…";
+                    await ServerClientInstance.StartAsync(e, sessionToken);
+                    if (!sessionToken.IsCancellationRequested)
+                    {
+                        throw new IOException("La session TCP s’est fermée sans annulation demandée.");
+                    }
+
+                    return;
+                }
+                catch (OperationCanceledException) when (sessionToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    lastFailure = ex;
+                    if (attempt < 4 && !sessionToken.IsCancellationRequested)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(attempt * 2), sessionToken);
+                    }
+                }
+            }
+
+            if (!_disposed && !sessionToken.IsCancellationRequested && lastFailure is not null)
+            {
+                MessageText = $"Les canaux TCP n’ont pas pu être rétablis après 4 tentatives : {lastFailure.Message} Déconnectez puis reconnectez l’appareil pour réessayer.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
         }
         finally
         {
@@ -676,29 +799,68 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(InformationWifiVisibily));
         });
 
-    private bool ShowSessionOccure = false;
-    private async void WifiService_InvitationReceived(object? sender, WifiDirectInvitationEventArgs e)
+    private void WifiService_InvitationReceived(object? sender, WifiDirectInvitationEventArgs e)
     {
-
-        while (ShowSessionOccure) await Task.Delay(4000);
-        _dispatcherQueue.TryEnqueue(async () =>
+        if (_disposed || Interlocked.CompareExchange(ref _invitationPromptActive, 1, 0) != 0)
         {
-            ShowSessionOccure = true;
-            InvitationRequested?.Invoke(this, e);
-        });
+            _ = _wifiService.RejectInvitationAsync(e.Token);
+            return;
+        }
+
+        if (!_dispatcherQueue.TryEnqueue(() =>
+        {
+            if (InvitationRequested is null)
+            {
+                _ = RespondToInvitationAsync(e, false);
+                return;
+            }
+
+            try
+            {
+                InvitationRequested.Invoke(this, e);
+            }
+            catch (Exception ex)
+            {
+                MessageText = $"Impossible d’afficher la demande de connexion : {ex.Message}";
+                _ = RespondToInvitationAsync(e, false);
+            }
+        }))
+        {
+            Interlocked.Exchange(ref _invitationPromptActive, 0);
+            _ = _wifiService.RejectInvitationAsync(e.Token);
+        }
     }
 
-    public Task RespondToInvitationAsync(WifiDirectInvitationEventArgs invitation, bool accept)
+    public async Task RespondToInvitationAsync(WifiDirectInvitationEventArgs invitation, bool accept)
+    {
+        try
         {
-            if (accept) _wifiService.AcceptInvitationAsync(invitation.Token);
-            else _wifiService.RejectInvitationAsync(invitation.Token);
-
-            ShowSessionOccure = false;
-            return Task.CompletedTask;
+            if (accept)
+            {
+                bool connected = await _wifiService.AcceptInvitationAsync(invitation.Token);
+                if (!connected)
+                {
+                    MessageText = "L’invitation a expiré ou la connexion Wi‑Fi Direct a échoué.";
+                }
+            }
+            else
+            {
+                await _wifiService.RejectInvitationAsync(invitation.Token);
+            }
         }
+        catch (Exception ex)
+        {
+            MessageText = $"Impossible de traiter l’invitation : {ex.Message}";
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _invitationPromptActive, 0);
+        }
+    }
 
     private void WifiService_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e)
     {
+        _ctsNetworkSession?.Cancel();
         ServerClientInstance.Stop();
         _dispatcherQueue.TryEnqueue(() =>
         {
@@ -728,6 +890,12 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
 
     protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
+    private void WifiService_Error(object? sender, WifiDirectErrorEventArgs e)
+    {
+        string message = string.IsNullOrWhiteSpace(e.message) ? "Une erreur Wi‑Fi Direct est survenue." : e.message;
+        _dispatcherQueue.TryEnqueue(() => MessageText = message);
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -739,15 +907,16 @@ public partial class MainViewModel : INotifyPropertyChanged, IDisposable
         _incomingTransferDecision?.TrySetResult(false);
         _ctsWatcher?.Cancel();
         _ctsTransfert?.Cancel();
+        _ctsNetworkSession?.Cancel();
         _ctsConnection?.Cancel();
         _ctsPlayer?.Cancel();
         ServerClientInstance.Stop();
-        _wifiService.Stop();
+        _wifiService.Dispose();
         _ctsWatcher?.Dispose();
         _ctsTransfert?.Dispose();
+        _ctsNetworkSession?.Dispose();
         _ctsConnection?.Dispose();
-        _transferGate.Dispose();
-        _networkStartGate.Dispose();
+        _wifiService.Error -= WifiService_Error;
     }
 
     private class RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null) : ICommand
