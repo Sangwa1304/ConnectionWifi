@@ -348,6 +348,8 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
         {
             if (!info.GroupFormed)
             {
+                if (_publisherStatus == WifiDirectPublicherStatus.Started)
+                    SetPublisherStatus(WifiDirectPublicherStatus.Closed);
                 if (_status == WifiDirectStatus.Connected)
                 {
                     WifiDirectPeer? closed;
