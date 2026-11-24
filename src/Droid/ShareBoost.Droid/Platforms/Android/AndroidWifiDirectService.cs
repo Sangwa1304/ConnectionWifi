@@ -1,4 +1,5 @@
 using Android.Content;
+using Android.Net.Wifi;
 using Android.Net.Wifi.P2p;
 using Android.OS;
 using Android.Runtime;
@@ -369,7 +370,7 @@ public enum AndroidWifiDirectStatus
     WifiDisabled
 }
 
-public sealed record AndroidWifiDirectPeer(string Address, string Name, WifiP2pDeviceStatus Status);
+public sealed record AndroidWifiDirectPeer(string Address, string Name, WifiP2pDeviceState Status);
 
 public sealed record AndroidWifiDirectConnection(bool IsGroupOwner, string GroupOwnerAddress, bool GroupFormed);
 
