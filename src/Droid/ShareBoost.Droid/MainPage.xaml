@@ -109,8 +109,10 @@
                                 <DataTemplate x:DataType="models:TransferFileItem">
                                     <Grid ColumnDefinitions="54,*,Auto,Auto" Padding="0,7" ColumnSpacing="8">
                                         <Border WidthRequest="50" HeightRequest="50" StrokeThickness="0" BackgroundColor="{AppThemeBinding Light=#EEF2F7, Dark=#263244}" StrokeShape="RoundRectangle 10">
-                                            <Image Source="{Binding Thumbnail}" Aspect="AspectFill" />
-                                            <Label Text="{Binding Kind}" FontSize="9" TextColor="#64748B" HorizontalOptions="Center" VerticalOptions="Center" />
+                                            <Grid>
+                                                <Image Source="{Binding Thumbnail}" Aspect="AspectFill" />
+                                                <Label Text="{Binding Kind}" FontSize="9" TextColor="#64748B" HorizontalOptions="Center" VerticalOptions="Center" />
+                                            </Grid>
                                         </Border>
                                         <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
                                             <Label Text="{Binding Name}" FontAttributes="Bold" LineBreakMode="TailTruncation" TextColor="{AppThemeBinding Light=#0F172A, Dark=White}" />
