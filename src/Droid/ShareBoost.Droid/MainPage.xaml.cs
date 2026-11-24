@@ -42,10 +42,4 @@ public partial class MainPage : ContentPage
         if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024d * 1024):0.##} Mo";
         return $"{bytes / (1024d * 1024 * 1024):0.##} Go";
     }
-
-    protected override void OnDisappearing()
-    {
-        _viewModel.IncomingTransferRequested -= OnIncomingTransferRequestedAsync;
-        base.OnDisappearing();
-    }
 }
