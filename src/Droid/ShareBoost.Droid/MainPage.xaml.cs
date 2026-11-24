@@ -1,24 +1,45 @@
-﻿namespace ShareBoost.Droid
+using ServiceTcpChared;
+using ShareBoost.Droid.ViewModels;
+
+namespace ShareBoost.Droid;
+
+public partial class MainPage : ContentPage
 {
-    public partial class MainPage : ContentPage
+    private readonly MainViewModel _viewModel;
+
+    public MainPage(MainViewModel viewModel)
     {
-        int count = 0;
+        InitializeComponent();
+        _viewModel = viewModel;
+        BindingContext = viewModel;
+        _viewModel.IncomingTransferRequested += OnIncomingTransferRequestedAsync;
+    }
 
-        public MainPage()
+    private async Task<bool> OnIncomingTransferRequestedAsync(InfoMetas request)
+    {
+        var names = string.Join("\n", request.Metas.Take(8).Select(item => $"• {item.NameWithExtension}"));
+        if (request.Metas.Length > 8)
+            names += $"\n… et {request.Metas.Length - 8} autre(s) fichier(s)";
+        var size = FormatSize(request.Length);
+        try
         {
-            InitializeComponent();
+            return await MainThread.InvokeOnMainThreadAsync(() => DisplayAlert(
+                "Réception de fichiers",
+                $"Un appareil souhaite envoyer {request.Metas.Length} fichier(s) ({size}) :\n\n{names}\n\nAutoriser la réception ?",
+                "Accepter",
+                "Refuser"));
         }
-
-        private void OnCounterClicked(object? sender, EventArgs e)
+        catch
         {
-            count++;
-
-            if (count == 1)
-                CounterBtn.Text = $"Clicked {count} time";
-            else
-                CounterBtn.Text = $"Clicked {count} times";
-
-            SemanticScreenReader.Announce(CounterBtn.Text);
+            return false;
         }
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} o";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024d:0.##} Ko";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024d * 1024):0.##} Mo";
+        return $"{bytes / (1024d * 1024 * 1024):0.##} Go";
     }
 }

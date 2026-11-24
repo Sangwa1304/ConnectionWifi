@@ -354,8 +354,8 @@ namespace WindowsWifiLibrary.Services
  
             InvitationReceived?.Invoke(this, new 
             (
-                token, 
-                request 
+                token,
+                new WifiDirectPeer(request.DeviceInformation.Id, request.DeviceInformation.Name)
             )); 
         } 
  

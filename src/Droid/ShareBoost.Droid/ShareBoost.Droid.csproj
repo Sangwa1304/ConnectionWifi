@@ -57,4 +57,9 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
 	</ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\WifiDirect.Contracts\WifiDirect.Contracts.csproj" />
+    <ProjectReference Include="..\..\ServiceTcpChared\ServiceTcpChared.csproj" />
+    <ProjectReference Include="..\..\LibraryModels\LibraryMI.csproj" />
+  </ItemGroup>
 </Project>
