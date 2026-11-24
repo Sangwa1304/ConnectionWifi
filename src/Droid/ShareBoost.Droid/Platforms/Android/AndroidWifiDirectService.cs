@@ -1,70 +1,87 @@
+using System.Net;
 using Android.Content;
 using Android.Net.Wifi;
 using Android.Net.Wifi.P2p;
 using Android.OS;
 using Android.Runtime;
 using Microsoft.Maui.ApplicationModel;
+using WindowsWifiLibrary.Interfaces;
+using WindowsWifiLibrary.Models;
 
 namespace ShareBoost.Droid.Platforms.Android;
 
 /// <summary>
-/// Android Wi-Fi Direct implementation. Android's system UI owns consent for
-/// incoming P2P negotiations; this service never treats a discovery result as
-/// an accepted connection.
+/// Android implementation of the exact platform-neutral Wi-Fi Direct contract
+/// consumed by the Windows orchestration. Android's system UI owns incoming
+/// P2P consent; this service never auto-accepts incoming invitations.
 /// </summary>
-public sealed class AndroidWifiDirectService : IDisposable
+public sealed class AndroidWifiDirectService : IWifiDirectService
 {
-    private readonly Context _context;
+    private readonly Context _context = Platform.AppContext;
     private readonly WifiP2pManager _manager;
     private readonly WifiP2pManager.Channel _channel;
     private readonly P2pReceiver _receiver;
     private readonly object _sync = new();
     private readonly Dictionary<string, WifiP2pDevice> _peers = new();
-    private TaskCompletionSource<AndroidWifiDirectConnection>? _connectionRequest;
+    private readonly SemaphoreSlim _connectionGate = new(1, 1);
+    private TaskCompletionSource<WifiDirectConnectionEventArgs>? _connectCompletion;
+    private WifiDirectPeer? _connectingPeer;
+    private WifiDirectPeer? _connectedPeer;
     private bool _receiverRegistered;
     private bool _disposed;
+    private WifiDirectStatus _status = WifiDirectStatus.Closed;
+    private WifiDirectPublicherStatus _publisherStatus = WifiDirectPublicherStatus.Closed;
+    private WifiDirectWatcherStatus _watcherStatus = WifiDirectWatcherStatus.Closed;
 
-    public AndroidWifiDirectStatus Status { get; private set; } = AndroidWifiDirectStatus.Closed;
-    public IReadOnlyCollection<AndroidWifiDirectPeer> Peers
-    {
-        get
-        {
-            lock (_sync)
-                return _peers.Values.Select(ToPeer).ToArray();
-        }
-    }
+    public WifiDirectStatus CurrentStatus => _status;
+    public WifiDirectPublicherStatus PublisherStatus => _publisherStatus;
+    public WifiDirectWatcherStatus WatcherStatus => _watcherStatus;
 
-    public event EventHandler<AndroidWifiDirectStatus>? StatusChanged;
-    public event EventHandler<AndroidWifiDirectPeer>? PeerDiscovered;
-    public event EventHandler<AndroidWifiDirectPeer>? PeerUpdated;
-    public event EventHandler<AndroidWifiDirectPeer>? PeerRemoved;
-    public event EventHandler<AndroidWifiDirectConnection>? ConnectionEstablished;
-    public event EventHandler<string>? Error;
+    public event EventHandler<WifiDirectStatusEventArgs>? StatusChanged;
+    public event EventHandler<WifiDirectPublicherStatusEventArgs>? PublicherStatusChanged;
+    public event EventHandler<WifiDirectWatcherStatusEventArgs>? WatcherStatusChanged;
+    public event EventHandler<WifiDirectPeerEventArgs>? PeerDiscovered;
+    public event EventHandler<WifiDirectPeerEventArgs>? PeerUpdated;
+    public event EventHandler<WifiDirectPeerEventArgs>? PeerRemoved;
+    public event EventHandler<WifiDirectInvitationEventArgs>? InvitationReceived;
+    public event EventHandler<WifiDirectConnectionEventArgs>? ConnectionEstablished;
+    public event EventHandler<WifiDirectPeerEventArgs>? ConnectionClosed;
+    public event EventHandler<WifiDirectErrorEventArgs>? Error;
 
     public AndroidWifiDirectService()
     {
-        _context = Platform.AppContext;
         _manager = (WifiP2pManager?)_context.GetSystemService(Context.WifiP2pService)
             ?? throw new NotSupportedException("Le service Wi-Fi Direct n'est pas disponible sur cet appareil.");
-
         _channel = _manager.Initialize(_context, Looper.MainLooper, null)
             ?? throw new InvalidOperationException("Impossible d'initialiser le canal Wi-Fi Direct.");
-
         _receiver = new P2pReceiver(this);
     }
 
-    public async Task<bool> InitializeAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> InitializeAsync(CancellationToken token)
     {
         ThrowIfDisposed();
-        cancellationToken.ThrowIfCancellationRequested();
+        token.ThrowIfCancellationRequested();
 
-        var permission = await Permissions.CheckStatusAsync<Permissions.NearbyWifiDevices>();
-        if (permission != PermissionStatus.Granted)
-            permission = await Permissions.RequestAsync<Permissions.NearbyWifiDevices>();
+        PermissionStatus permission;
+        if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
+        {
+            permission = await Permissions.CheckStatusAsync<Permissions.NearbyWifiDevices>();
+            if (permission != PermissionStatus.Granted)
+                permission = await Permissions.RequestAsync<Permissions.NearbyWifiDevices>();
+        }
+        else
+        {
+#pragma warning disable CA1422
+            permission = await Permissions.CheckStatusAsync<Permissions.LocationWhenInUse>();
+            if (permission != PermissionStatus.Granted)
+                permission = await Permissions.RequestAsync<Permissions.LocationWhenInUse>();
+#pragma warning restore CA1422
+        }
 
         if (permission != PermissionStatus.Granted)
         {
-            ReportError("L'autorisation Android « Appareils à proximité » (ou localisation sur Android 12 et antérieur) est nécessaire pour Wi-Fi Direct.");
+            SetStatus(WifiDirectStatus.NoArdwareSupported);
+            ReportError("L'autorisation Android requise pour Wi-Fi Direct a été refusée.");
             return false;
         }
 
@@ -77,6 +94,7 @@ public sealed class AndroidWifiDirectService : IDisposable
             filter.AddAction(WifiP2pManager.WifiP2pThisDeviceChangedAction);
             if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
                 filter.AddAction(WifiP2pManager.ActionWifiP2pRequestResponseChanged);
+
             if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
                 _context.RegisterReceiver(_receiver, filter, ReceiverFlags.NotExported);
             else
@@ -86,153 +104,182 @@ public sealed class AndroidWifiDirectService : IDisposable
             _receiverRegistered = true;
         }
 
-        SetStatus(AndroidWifiDirectStatus.Disconnected);
-        return Task.FromResult(true);
+        SetStatus(WifiDirectStatus.Disconnected);
+        return true;
     }
 
-    /// <summary>
-    /// Makes this device available as a group owner. This does not accept a
-    /// remote peer by itself; Android controls incoming negotiation consent.
-    /// </summary>
-    public Task<bool> StartPublishingAsync(CancellationToken cancellationToken = default)
+    public Task StartPublishingAsync(CancellationToken token)
     {
         ThrowIfDisposed();
-        cancellationToken.ThrowIfCancellationRequested();
+        token.ThrowIfCancellationRequested();
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
         _manager.CreateGroup(_channel, new ActionListener(
-            () => completion.TrySetResult(true),
+            () =>
+            {
+                SetPublisherStatus(WifiDirectPublicherStatus.Started);
+                completion.TrySetResult(true);
+            },
             reason =>
             {
                 ReportError($"Impossible de publier le service Wi-Fi Direct : {reason}.");
                 completion.TrySetResult(false);
             }));
-
-        return completion.Task.WaitAsync(cancellationToken);
+        return AwaitActionAsync(completion.Task, token);
     }
 
-    public Task<bool> StartSubscribingAsync(CancellationToken cancellationToken = default)
+    public Task StartSubscribingAsync(CancellationToken token)
     {
         ThrowIfDisposed();
-        cancellationToken.ThrowIfCancellationRequested();
+        token.ThrowIfCancellationRequested();
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
         _manager.DiscoverPeers(_channel, new ActionListener(
-            () => completion.TrySetResult(true),
+            () =>
+            {
+                SetWatcherStatus(WifiDirectWatcherStatus.Started);
+                completion.TrySetResult(true);
+                RefreshPeers();
+            },
             reason =>
             {
                 ReportError($"Échec de la découverte Wi-Fi Direct : {reason}.");
                 completion.TrySetResult(false);
             }));
-
-        return completion.Task.WaitAsync(cancellationToken);
+        return AwaitActionAsync(completion.Task, token);
     }
 
-    public async Task<bool> StartPublisherSubscribingAsync(CancellationToken cancellationToken = default)
+    public async Task StartPublisherSubscribingAsync(CancellationToken token)
     {
-        var published = await StartPublishingAsync(cancellationToken).ConfigureAwait(false);
-        if (!published)
-            return false;
-
-        return await StartSubscribingAsync(cancellationToken).ConfigureAwait(false);
+        ThrowIfDisposed();
+        token.ThrowIfCancellationRequested();
+        bool published = await StartPublishingAsync(token).ConfigureAwait(false);
+        if (published && !token.IsCancellationRequested)
+            await StartSubscribingAsync(token).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Requests a connection and waits for Android to report an actually
-    /// formed P2P group. The remote device/system can still reject the request.
-    /// </summary>
-    public async Task<AndroidWifiDirectConnection?> ConnectToPeerAsync(
-        AndroidWifiDirectPeer peer,
-        CancellationToken cancellationToken = default)
+    public async Task<bool> ConnectToPeerAsync(WifiDirectPeer peer, CancellationToken token)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(peer);
-
-        WifiP2pDevice device;
-        lock (_sync)
-        {
-            if (!_peers.TryGetValue(peer.Address, out device!))
-                throw new InvalidOperationException("Cet appareil n'est plus dans la liste des appareils découverts.");
-
-            if (_connectionRequest is not null)
-                throw new InvalidOperationException("Une négociation Wi-Fi Direct est déjà en cours.");
-
-            _connectionRequest = new TaskCompletionSource<AndroidWifiDirectConnection>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-        }
-
-        SetStatus(AndroidWifiDirectStatus.Connecting);
-
+        await _connectionGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
+            WifiP2pDevice device;
+            lock (_sync)
+            {
+                if (!_peers.TryGetValue(peer.Id, out device!))
+                    throw new InvalidOperationException("Cet appareil n'est plus dans la liste des appareils découverts.");
+                _connectingPeer = peer;
+                _connectCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            SetStatus(WifiDirectStatus.Aborded);
             var config = new WifiP2pConfig
             {
                 DeviceAddress = device.DeviceAddress,
                 Wps = new WpsInfo { Setup = WpsInfo.Pbc }
             };
-
-            var request = _connectionRequest;
+            var request = _connectCompletion;
             _manager.Connect(_channel, config, new ActionListener(
-                () => { /* OnSuccess means request submitted, not connected. */ },
-                reason =>
-                {
-                    request.TrySetException(new InvalidOperationException(
-                        $"La demande de connexion a été rejetée : {reason}."));
-                }));
+                () => { /* Android accepted the request submission; group formation is awaited below. */ },
+                reason => request.TrySetException(new InvalidOperationException($"La demande de connexion a échoué : {reason}."))));
 
-            using var registration = cancellationToken.Register(() =>
-                request.TrySetCanceled(cancellationToken));
-
-            // A negotiation can be left pending by the OS or the other device.
-            var connection = await request.Task.WaitAsync(TimeSpan.FromSeconds(60), cancellationToken)
-                .ConfigureAwait(false);
-
-            return connection;
+            using var registration = token.Register(() => request.TrySetCanceled(token));
+            var established = await request.Task.WaitAsync(TimeSpan.FromSeconds(60), token).ConfigureAwait(false);
+            return established.ServerMode;
         }
         catch (TimeoutException)
         {
-            ReportError("Délai dépassé : aucune connexion Wi-Fi Direct n'a été confirmée.");
-            SetStatus(AndroidWifiDirectStatus.Disconnected);
-            return null;
+            SetStatus(WifiDirectStatus.Disconnected);
+            ReportError("La négociation Wi-Fi Direct a expiré.");
+            return false;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             _manager.CancelConnect(_channel, new ActionListener(() => { }, _ => { }));
-            SetStatus(AndroidWifiDirectStatus.Disconnected);
             throw;
         }
         catch (Exception ex)
         {
-            ReportError(ex.Message);
-            SetStatus(AndroidWifiDirectStatus.Disconnected);
-            return null;
+            SetStatus(WifiDirectStatus.Disconnected);
+            ReportError(ex.Message, ex);
+            return false;
         }
         finally
         {
             lock (_sync)
-                _connectionRequest = null;
+            {
+                _connectCompletion = null;
+                _connectingPeer = null;
+            }
+            _connectionGate.Release();
         }
     }
 
-    /// <summary>Opens Android's system connectivity panel; apps cannot silently toggle Wi-Fi on modern Android.</summary>
+    /// <summary>
+    /// Android handles incoming Wi-Fi Direct negotiation through its system
+    /// confirmation UI. There is no public API for an ordinary app to accept
+    /// or reject that system-owned request programmatically.
+    /// </summary>
+    public Task<bool> AcceptInvitationAsync(string token)
+    {
+        ReportError("Android gère cette demande dans sa boîte de dialogue système ; l'application ne peut pas l'accepter à sa place.");
+        return Task.FromResult(false);
+    }
+
+    public Task RejectInvitationAsync(string token)
+    {
+        // The request belongs to Android's system UI, not to an app-owned token.
+        return Task.CompletedTask;
+    }
+
+    public bool DisconnectToPeer(ref WifiDirectPeer? peer, CancellationToken token)
+    {
+        if (token.IsCancellationRequested || peer is null)
+            return false;
+
+        var disconnected = peer;
+        peer = null;
+        lock (_sync)
+        {
+            _connectedPeer = null;
+            _connectCompletion?.TrySetCanceled();
+        }
+        _manager.RemoveGroup(_channel, new ActionListener(
+            () => SetStatus(WifiDirectStatus.Disconnected),
+            reason => ReportError($"La déconnexion Wi-Fi Direct a échoué : {reason}.")));
+        ConnectionClosed?.Invoke(this, new WifiDirectPeerEventArgs(disconnected));
+        return true;
+    }
+
+    public void Stop()
+    {
+        if (_disposed) return;
+        _manager.StopPeerDiscovery(_channel, new ActionListener(() => { }, _ => { }));
+        _manager.RemoveGroup(_channel, new ActionListener(() => { }, _ => { }));
+        SetWatcherStatus(WifiDirectWatcherStatus.Closed);
+        SetPublisherStatus(WifiDirectPublicherStatus.Closed);
+        SetStatus(WifiDirectStatus.Closed);
+        lock (_sync)
+        {
+            _connectCompletion?.TrySetCanceled();
+            _connectCompletion = null;
+            _connectedPeer = null;
+        }
+    }
+
     public void OpenWifiSettings()
     {
         ThrowIfDisposed();
         var action = Build.VERSION.SdkInt >= BuildVersionCodes.Q
             ? Android.Provider.Settings.Panel.ActionInternetConnectivity
             : Android.Provider.Settings.ActionWifiSettings;
-        var intent = new Intent(action).AddFlags(ActivityFlags.NewTask);
-        _context.StartActivity(intent);
+        _context.StartActivity(new Intent(action).AddFlags(ActivityFlags.NewTask));
     }
 
-    public Task DisconnectAsync()
+    private static async Task AwaitActionAsync(Task<bool> task, CancellationToken token)
     {
-        ThrowIfDisposed();
-        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _manager.RemoveGroup(_channel, new ActionListener(
-            () => completion.TrySetResult(true),
-            _ => completion.TrySetResult(false)));
-        return completion.Task;
+        if (await task.WaitAsync(token).ConfigureAwait(false) is false)
+            throw new InvalidOperationException("L'opération Wi-Fi Direct n'a pas pu démarrer.");
     }
 
     private void RefreshPeers()
@@ -240,23 +287,20 @@ public sealed class AndroidWifiDirectService : IDisposable
         _manager.RequestPeers(_channel, new PeerListListener(devices =>
         {
             var current = devices.DeviceList.ToDictionary(d => d.DeviceAddress, d => d);
-            List<AndroidWifiDirectPeer> added;
-            List<AndroidWifiDirectPeer> updated;
-            List<AndroidWifiDirectPeer> removed;
-
+            List<WifiDirectPeer> added;
+            List<WifiDirectPeer> updated;
+            List<WifiDirectPeer> removed;
             lock (_sync)
             {
                 added = current.Values.Where(d => !_peers.ContainsKey(d.DeviceAddress)).Select(ToPeer).ToList();
                 updated = current.Values.Where(d => _peers.ContainsKey(d.DeviceAddress)).Select(ToPeer).ToList();
                 removed = _peers.Values.Where(d => !current.ContainsKey(d.DeviceAddress)).Select(ToPeer).ToList();
                 _peers.Clear();
-                foreach (var item in current)
-                    _peers[item.Key] = item.Value;
+                foreach (var item in current) _peers[item.Key] = item.Value;
             }
-
-            foreach (var peer in added) PeerDiscovered?.Invoke(this, peer);
-            foreach (var peer in updated) PeerUpdated?.Invoke(this, peer);
-            foreach (var peer in removed) PeerRemoved?.Invoke(this, peer);
+            foreach (var peer in added) PeerDiscovered?.Invoke(this, new(peer));
+            foreach (var peer in updated) PeerUpdated?.Invoke(this, new(peer));
+            foreach (var peer in removed) PeerRemoved?.Invoke(this, new(peer));
         }));
     }
 
@@ -265,24 +309,94 @@ public sealed class AndroidWifiDirectService : IDisposable
         _manager.RequestConnectionInfo(_channel, new ConnectionInfoListener(info =>
         {
             if (!info.GroupFormed)
+            {
+                if (_status == WifiDirectStatus.Connected)
+                {
+                    WifiDirectPeer? closed;
+                    lock (_sync) { closed = _connectedPeer; _connectedPeer = null; }
+                    SetStatus(WifiDirectStatus.Disconnected);
+                    if (closed is not null) ConnectionClosed?.Invoke(this, new(closed));
+                }
                 return;
-
-            // Android exposes the group-owner address, not necessarily the
-            // remote client's address when this device is the group owner.
-            var address = info.GroupOwnerAddress?.HostAddress ?? string.Empty;
-            var connection = new AndroidWifiDirectConnection(
-                info.IsGroupOwner,
-                address,
-                info.GroupFormed);
-
-            var wasConnected = Status == AndroidWifiDirectStatus.Connected;
-            SetStatus(AndroidWifiDirectStatus.Connected);
-            lock (_sync)
-                _connectionRequest?.TrySetResult(connection);
-
-            if (!wasConnected)
-                ConnectionEstablished?.Invoke(this, connection);
+            }
+            _ = CompleteConnectionAsync(info);
         }));
+    }
+
+    private async Task CompleteConnectionAsync(WifiP2pInfo info)
+    {
+        try
+        {
+            string remoteAddress;
+            WifiDirectPeer peer;
+            bool serverMode;
+            if (!info.IsGroupOwner)
+            {
+                remoteAddress = info.GroupOwnerAddress?.HostAddress ?? string.Empty;
+                lock (_sync)
+                {
+                    peer = _connectingPeer ?? new WifiDirectPeer(remoteAddress, "Propriétaire du groupe");
+                    serverMode = _connectingPeer is not null;
+                }
+            }
+            else
+            {
+                var group = await RequestGroupAsync().ConfigureAwait(false);
+                var remoteDevice = group?.ClientList?.FirstOrDefault();
+                if (remoteDevice is null)
+                    throw new InvalidOperationException("Le groupe Wi-Fi Direct est formé, mais aucun client distant n'est encore présent.");
+                remoteAddress = await ResolveClientAddressAsync(remoteDevice.DeviceAddress, TimeSpan.FromSeconds(20)).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("Impossible de résoudre l'adresse IP du client Wi-Fi Direct.");
+                lock (_sync)
+                {
+                    peer = _connectingPeer ?? ToPeer(remoteDevice);
+                    serverMode = _connectingPeer is not null;
+                }
+            }
+
+            if (!IPAddress.TryParse(remoteAddress, out _))
+                throw new InvalidOperationException("Wi-Fi Direct n'a pas fourni d'adresse IP distante valide.");
+
+            lock (_sync) _connectedPeer = peer;
+            SetStatus(WifiDirectStatus.Connected);
+            var args = new WifiDirectConnectionEventArgs(serverMode, remoteAddress, peer.Id);
+            ConnectionEstablished?.Invoke(this, args);
+            lock (_sync) _connectCompletion?.TrySetResult(args);
+        }
+        catch (Exception ex)
+        {
+            SetStatus(WifiDirectStatus.Aborded);
+            ReportError(ex.Message, ex);
+            lock (_sync) _connectCompletion?.TrySetException(ex);
+        }
+    }
+
+    private Task<WifiP2pGroup?> RequestGroupAsync()
+    {
+        var completion = new TaskCompletionSource<WifiP2pGroup?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _manager.RequestGroupInfo(_channel, new GroupInfoListener(group => completion.TrySetResult(group)));
+        return completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    private static async Task<string?> ResolveClientAddressAsync(string mac, TimeSpan timeout)
+    {
+        var until = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < until)
+        {
+            try
+            {
+                foreach (var line in await File.ReadAllLinesAsync("/proc/net/arp").ConfigureAwait(false))
+                {
+                    var columns = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                    if (columns.Length >= 4 && columns[3].Equals(mac, StringComparison.OrdinalIgnoreCase)
+                        && IPAddress.TryParse(columns[0], out _))
+                        return columns[0];
+                }
+            }
+            catch (IOException) { }
+            await Task.Delay(500).ConfigureAwait(false);
+        }
+        return null;
     }
 
     private void OnBroadcast(Intent? intent)
@@ -291,74 +405,69 @@ public sealed class AndroidWifiDirectService : IDisposable
             RefreshPeers();
         else if (intent?.Action == WifiP2pManager.WifiP2pConnectionChangedAction)
             RefreshConnection();
+        else if (intent?.Action == WifiP2pManager.WifiP2pStateChangedAction)
+        {
+            bool enabled = intent.GetIntExtra(WifiP2pManager.ExtraWifiState, -1) == (int)WifiP2pState.Enabled;
+            if (!enabled)
+            {
+                SetStatus(WifiDirectStatus.Aborded);
+                ReportError("Le Wi-Fi a été désactivé.");
+                lock (_sync) _connectCompletion?.TrySetException(new InvalidOperationException("Wi-Fi désactivé."));
+            }
+        }
         else if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu &&
                  intent?.Action == WifiP2pManager.ActionWifiP2pRequestResponseChanged)
         {
-            var accepted = intent.GetBooleanExtra(WifiP2pManager.ExtraRequestResponse, false);
+            bool accepted = intent.GetBooleanExtra(WifiP2pManager.ExtraRequestResponse, false);
             if (!accepted)
             {
-                lock (_sync)
-                    _connectionRequest?.TrySetException(
-                        new InvalidOperationException("La demande Wi-Fi Direct a été refusée par l'autre appareil."));
-                SetStatus(AndroidWifiDirectStatus.Disconnected);
-            }
-        }
-        else if (intent?.Action == WifiP2pManager.WifiP2pStateChangedAction)
-        {
-            var enabled = intent.GetIntExtra(WifiP2pManager.ExtraWifiState, -1)
-                == (int)WifiP2pState.Enabled;
-            if (!enabled)
-            {
-                SetStatus(AndroidWifiDirectStatus.WifiDisabled);
-                lock (_sync)
-                    _connectionRequest?.TrySetException(
-                        new InvalidOperationException("Le Wi-Fi Direct a été désactivé."));
+                lock (_sync) _connectCompletion?.TrySetException(new InvalidOperationException("La demande Wi-Fi Direct a été refusée."));
+                SetStatus(WifiDirectStatus.Disconnected);
             }
         }
     }
 
-    private static AndroidWifiDirectPeer ToPeer(WifiP2pDevice device) =>
-        new(device.DeviceAddress, string.IsNullOrWhiteSpace(device.DeviceName)
-            ? "Appareil sans nom"
-            : device.DeviceName, device.Status);
+    private static WifiDirectPeer ToPeer(WifiP2pDevice device) =>
+        new(device.DeviceAddress, string.IsNullOrWhiteSpace(device.DeviceName) ? "Appareil sans nom" : device.DeviceName);
 
-    private void SetStatus(AndroidWifiDirectStatus status)
+    private void SetStatus(WifiDirectStatus value)
     {
-        if (Status == status)
-            return;
-        Status = status;
-        StatusChanged?.Invoke(this, status);
+        if (_status == value) return;
+        _status = value;
+        StatusChanged?.Invoke(this, new(value));
     }
 
-    private void ReportError(string message) => Error?.Invoke(this, message);
-
-    private void ThrowIfDisposed()
+    private void SetPublisherStatus(WifiDirectPublicherStatus value)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_publisherStatus == value) return;
+        _publisherStatus = value;
+        PublicherStatusChanged?.Invoke(this, new(value));
     }
+
+    private void SetWatcherStatus(WifiDirectWatcherStatus value)
+    {
+        if (_watcherStatus == value) return;
+        _watcherStatus = value;
+        WatcherStatusChanged?.Invoke(this, new(value));
+    }
+
+    private void ReportError(string message, Exception? exception = null) =>
+        Error?.Invoke(this, new(exception, message));
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     public void Dispose()
     {
-        if (_disposed)
-            return;
+        if (_disposed) return;
+        Stop();
         _disposed = true;
-
-        lock (_sync)
-        {
-            _connectionRequest?.TrySetCanceled();
-            _connectionRequest = null;
-            _peers.Clear();
-        }
-
         if (_receiverRegistered)
         {
             _context.UnregisterReceiver(_receiver);
             _receiverRegistered = false;
         }
-
-        _manager.StopPeerDiscovery(_channel, new ActionListener(() => { }, _ => { }));
-        _manager.RemoveGroup(_channel, new ActionListener(() => { }, _ => { }));
-        SetStatus(AndroidWifiDirectStatus.Closed);
+        lock (_sync) _peers.Clear();
+        _connectionGate.Dispose();
     }
 
     private sealed class ActionListener(Action success, Action<WifiP2pFailureReason> failure)
@@ -380,21 +489,14 @@ public sealed class AndroidWifiDirectService : IDisposable
         public void OnConnectionInfoAvailable(WifiP2pInfo info) => callback(info);
     }
 
+    private sealed class GroupInfoListener(Action<WifiP2pGroup?> callback)
+        : Java.Lang.Object, WifiP2pManager.IGroupInfoListener
+    {
+        public void OnGroupInfoAvailable(WifiP2pGroup? group) => callback(group);
+    }
+
     private sealed class P2pReceiver(AndroidWifiDirectService owner) : BroadcastReceiver
     {
         public override void OnReceive(Context? context, Intent? intent) => owner.OnBroadcast(intent);
     }
 }
-
-public enum AndroidWifiDirectStatus
-{
-    Closed,
-    Disconnected,
-    Connecting,
-    Connected,
-    WifiDisabled
-}
-
-public sealed record AndroidWifiDirectPeer(string Address, string Name, WifiP2pDeviceState Status);
-
-public sealed record AndroidWifiDirectConnection(bool IsGroupOwner, string GroupOwnerAddress, bool GroupFormed);
