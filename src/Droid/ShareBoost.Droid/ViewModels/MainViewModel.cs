@@ -301,7 +301,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private async Task OpenReceivedFileAsync(TransferFileItem? item)
     {
         if (item is null || !File.Exists(item.LocalPath)) return;
-        await Launcher.Default.OpenAsync(new OpenFileRequest(item.Name, item.LocalPath));
+        await Launcher.Default.OpenAsync(new OpenFileRequest(item.Name, new ReadOnlyFile(item.LocalPath)));
     }
 
     private async Task ShareReceivedFileAsync(TransferFileItem? item)
