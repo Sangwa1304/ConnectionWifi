@@ -30,7 +30,7 @@ public sealed class AndroidTransferOrchestrator : IDisposable
     private volatile bool _isRunning;
     private bool _disposed;
 
-    public bool IsRunning => _isRunning;
+    public bool IsRunning => _isRunning && _ready?.Task.IsCompletedSuccessfully == true;
     public float SendProgress => ServerInstance?.Percentage ?? 0;
     public float ReceiveProgress => ClientInstance?.Percentage ?? 0;
     public string SendDescription => ServerInstance?.FileReceivedOrSend ?? string.Empty;
