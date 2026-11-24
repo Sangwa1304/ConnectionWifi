@@ -159,8 +159,8 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
     {
         ThrowIfDisposed();
         token.ThrowIfCancellationRequested();
-        bool published = await StartPublishingAsync(token).ConfigureAwait(false);
-        if (published && !token.IsCancellationRequested)
+        await StartPublishingAsync(token).ConfigureAwait(false);
+        if (!token.IsCancellationRequested)
             await StartSubscribingAsync(token).ConfigureAwait(false);
     }
 
