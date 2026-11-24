@@ -413,13 +413,20 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private void Wifi_PublisherStatusChanged(object? sender, WifiDirectPublicherStatusEventArgs e) =>
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            OnPropertyChanged(nameof(Status));
+            if (!IsConnected)
+                Status = e.Status == WifiDirectPublicherStatus.Started
+                    ? "Publié — en attente d'un appareil"
+                    : "Déconnecté";
             OnPropertyChanged(nameof(IsPublishing));
             RaiseCommands();
         });
 
     private void Wifi_WatcherStatusChanged(object? sender, WifiDirectWatcherStatusEventArgs e) =>
-        MainThread.BeginInvokeOnMainThread(() => OnPropertyChanged(nameof(Status)));
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (!IsConnected && !IsPublishing)
+                Status = e.Status == WifiDirectWatcherStatus.Started ? "Recherche d'appareils…" : "Déconnecté";
+        });
 
     private void Wifi_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) =>
         MainThread.BeginInvokeOnMainThread(() =>
