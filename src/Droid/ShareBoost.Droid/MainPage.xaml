@@ -43,7 +43,10 @@
                             <Button Text="Initialiser" Command="{Binding InitializeCommand}" />
                             <Button Grid.Column="1" Text="Rechercher" Command="{Binding DiscoverCommand}" BackgroundColor="#2563EB" TextColor="White" />
                         </Grid>
-                        <Button Text="Rendre ce téléphone disponible" Command="{Binding PublishCommand}" BackgroundColor="{AppThemeBinding Light=#E8F0FF, Dark=#1D3153}" TextColor="#2563EB" />
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                            <Button Text="Publier ce téléphone" Command="{Binding PublishCommand}" BackgroundColor="{AppThemeBinding Light=#E8F0FF, Dark=#1D3153}" TextColor="#2563EB" />
+                            <Button Grid.Column="1" Text="Paramètres Wi-Fi" Command="{Binding OpenWifiSettingsCommand}" />
+                        </Grid>
                     </VerticalStackLayout>
                 </Border>
 
