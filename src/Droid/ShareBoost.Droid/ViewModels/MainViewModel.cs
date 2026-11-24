@@ -89,9 +89,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         Directory.CreateDirectory(StreamingData.DownloadDirectory);
         OpenWifiSettingsCommand = new AsyncCommand(_ => { _androidNative.OpenWifiSettings(); return Task.CompletedTask; }, _ => !IsBusy);
         InitializeCommand = new AsyncCommand(_ => InitializeAsync(), _ => !IsBusy);
-        DiscoverCommand = new AsyncCommand(_ => DiscoverAsync(), _ => IsInitialized && !IsBusy);
-        PublishCommand = new AsyncCommand(_ => PublishAsync(), _ => IsInitialized && !IsBusy);
-        ConnectCommand = new AsyncCommand(p => ConnectAsync(p as WifiDirectPeer), p => IsInitialized && !IsBusy && p is WifiDirectPeer);
+        DiscoverCommand = new AsyncCommand(_ => DiscoverAsync(), _ => IsInitialized && !IsBusy && !IsConnected);
+        PublishCommand = new AsyncCommand(_ => PublishAsync(), _ => IsInitialized && !IsBusy && !IsConnected);
+        ConnectCommand = new AsyncCommand(p => ConnectAsync(p as WifiDirectPeer), p => IsInitialized && !IsBusy && !IsConnected && p is WifiDirectPeer);
         DisconnectCommand = new AsyncCommand(_ => DisconnectAsync(), _ => IsConnected && !IsBusy);
         PickFilesCommand = new AsyncCommand(_ => PickFilesAsync(), _ => !IsBusy && !_isTransferBusy);
         RemoveFileCommand = new AsyncCommand(p => RemoveFileAsync(p as TransferFileItem), p => !IsBusy && !_isTransferBusy && p is TransferFileItem);
