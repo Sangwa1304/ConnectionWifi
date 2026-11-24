@@ -37,6 +37,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ObservableCollection<WifiDirectPeer> Peers { get; } = [];
     public ObservableCollection<TransferFileItem> SelectedFiles { get; } = [];
     public ObservableCollection<TransferHistoryEntry> RecentTransfers { get; } = [];
+    public ObservableCollection<TransferFileItem> ReceivedFiles { get; } = [];
 
     public string Status { get => _status; private set => Set(ref _status, value); }
     public string Message { get => _message; private set => Set(ref _message, value); }
@@ -72,6 +73,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ClearFilesCommand { get; }
     public ICommand SendCommand { get; }
     public ICommand CancelTransferCommand { get; }
+    public ICommand OpenReceivedFileCommand { get; }
+    public ICommand ShareReceivedFileCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event Func<InfoMetas, Task<bool>>? IncomingTransferRequested;
@@ -80,6 +83,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         _wifi = wifi;
         _androidNative = androidNative;
+        StreamingData.DownloadDirectory = Path.Combine(FileSystem.AppDataDirectory, "Received");
+        Directory.CreateDirectory(StreamingData.DownloadDirectory);
         OpenWifiSettingsCommand = new AsyncCommand(_ => { _androidNative.OpenWifiSettings(); return Task.CompletedTask; }, _ => !IsBusy);
         InitializeCommand = new AsyncCommand(_ => InitializeAsync(), _ => !IsInitialized && !IsBusy);
         DiscoverCommand = new AsyncCommand(_ => DiscoverAsync(), _ => IsInitialized && !IsBusy);
@@ -91,6 +96,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         ClearFilesCommand = new AsyncCommand(_ => ClearFilesAsync(), _ => SelectedFiles.Count > 0 && !IsBusy && !_isTransferBusy);
         SendCommand = new AsyncCommand(_ => SendAsync(), _ => CanSend);
         CancelTransferCommand = new AsyncCommand(_ => CancelTransferAsync(), _ => _isTransferBusy);
+        OpenReceivedFileCommand = new AsyncCommand(p => OpenReceivedFileAsync(p as TransferFileItem), p => p is TransferFileItem);
+        ShareReceivedFileCommand = new AsyncCommand(p => ShareReceivedFileAsync(p as TransferFileItem), p => p is TransferFileItem);
 
         _wifi.StatusChanged += Wifi_StatusChanged;
         _wifi.PublicherStatusChanged += Wifi_PublisherStatusChanged;
@@ -104,6 +111,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _transfer.IncomingTransferRequested += Transfer_IncomingTransferRequested;
         _transfer.ProgressChanged += Transfer_ProgressChanged;
         _transfer.FilesChanged += Transfer_FilesChanged;
+        _transfer.FileTransferCompleted += Transfer_FileTransferCompleted;
+        RefreshReceivedFiles();
         SelectedFiles.CollectionChanged += (_, _) => NotifyFilesChanged();
         RecentTransfers.CollectionChanged += (_, _) => OnPropertyChanged(nameof(RecentTransfers));
     }
@@ -287,6 +296,62 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    private async Task OpenReceivedFileAsync(TransferFileItem? item)
+    {
+        if (item is null || !File.Exists(item.LocalPath)) return;
+        await Launcher.Default.OpenAsync(new OpenFileRequest(item.Name, item.LocalPath));
+    }
+
+    private async Task ShareReceivedFileAsync(TransferFileItem? item)
+    {
+        if (item is null || !File.Exists(item.LocalPath)) return;
+        await Share.Default.RequestAsync(new ShareFileRequest($"Partager {item.Name}", new ShareFile(item.LocalPath)));
+    }
+
+    private void RefreshReceivedFiles()
+    {
+        if (!Directory.Exists(StreamingData.DownloadDirectory)) return;
+        var paths = Directory.EnumerateFiles(StreamingData.DownloadDirectory)
+            .Where(path => !path.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            foreach (var path in paths)
+            {
+                if (ReceivedFiles.Any(file => string.Equals(file.LocalPath, path, StringComparison.OrdinalIgnoreCase))) continue;
+                var info = new FileInfo(path);
+                var ext = info.Extension.ToLowerInvariant();
+                var kind = ext switch
+                {
+                    ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".bmp" or ".heic" => "Image",
+                    ".mp4" or ".mov" or ".mkv" or ".webm" => "Vidéo",
+                    ".mp3" or ".wav" or ".m4a" or ".flac" => "Audio",
+                    ".pdf" => "PDF",
+                    _ => "Fichier"
+                };
+                ImageSource? thumbnail = kind == "Image" ? ImageSource.FromFile(path) : null;
+                ReceivedFiles.Insert(0, new TransferFileItem(info.Name, path, info.Length, thumbnail, kind));
+            }
+            OnPropertyChanged(nameof(ReceivedFiles));
+        });
+    }
+
+    private void Transfer_FileTransferCompleted(StreamingData.FileFinishe file)
+    {
+        if (file.Transfert == StreamingData.TransfertType.Recu)
+            RefreshReceivedFiles();
+        MainThread.BeginInvokeOnMainThread(() =>
+            RecentTransfers.Insert(0, new TransferHistoryEntry
+            {
+                Name = file.Name,
+                Type = file.Transfert == StreamingData.TransfertType.Recu ? "Réception" : "Envoi",
+                Status = "Terminé",
+                Path = StreamingData.DownloadDirectory,
+                Size = file.Length,
+                Timestamp = file.Time
+            }));
+    }
+
     private Task CancelTransferAsync()
     {
         _transferCancellation?.Cancel();
@@ -381,9 +446,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             try
             {
-                Message = attempt == 1 ? "Ouverture des deux canaux TCP…" : $"Rétablissement des canaux TCP ({attempt}/4)…";
+                MainThread.BeginInvokeOnMainThread(() => Message = attempt == 1 ? "Ouverture des deux canaux TCP…" : $"Rétablissement des canaux TCP ({attempt}/4)…");
                 var run = _transfer.StartAsync(connection, token);
-                await _transfer.WaitUntilReadyAsync(token);
+                Task ready = _transfer.WaitUntilReadyAsync(token);
+                Task first = await Task.WhenAny(ready, run);
+                if (first == run) await run;
+                await ready;
                 _networkReady?.TrySetResult(true);
                 OnPropertyChanged(nameof(IsTransferReady));
                 OnPropertyChanged(nameof(TransferStatus));
@@ -458,7 +526,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void RaiseCommands()
     {
-        foreach (var command in new[] { OpenWifiSettingsCommand, InitializeCommand, DiscoverCommand, PublishCommand, ConnectCommand, DisconnectCommand, PickFilesCommand, RemoveFileCommand, ClearFilesCommand, SendCommand, CancelTransferCommand })
+        foreach (var command in new[] { OpenWifiSettingsCommand, InitializeCommand, DiscoverCommand, PublishCommand, ConnectCommand, DisconnectCommand, PickFilesCommand, RemoveFileCommand, ClearFilesCommand, SendCommand, CancelTransferCommand, OpenReceivedFileCommand, ShareReceivedFileCommand })
             (command as AsyncCommand)?.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanSend));
     }
