@@ -62,6 +62,14 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
         ThrowIfDisposed();
         token.ThrowIfCancellationRequested();
 
+        var wifiManager = (WifiManager?)_context.GetSystemService(Context.WifiService);
+        if (wifiManager is null || !wifiManager.IsWifiEnabled)
+        {
+            SetStatus(WifiDirectStatus.Aborded);
+            ReportError("Le Wi-Fi Android est désactivé. Activez-le dans les paramètres système puis réessayez.");
+            return false;
+        }
+
         PermissionStatus permission;
         if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
         {
@@ -411,6 +419,10 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                 SetStatus(WifiDirectStatus.Aborded);
                 ReportError("Le Wi-Fi a été désactivé.");
                 lock (_sync) _connectCompletion?.TrySetException(new InvalidOperationException("Wi-Fi désactivé."));
+            }
+            else if (_status == WifiDirectStatus.Aborded)
+            {
+                SetStatus(WifiDirectStatus.Disconnected);
             }
         }
         else if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu &&
