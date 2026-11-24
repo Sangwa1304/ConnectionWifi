@@ -338,24 +338,34 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                     peer = _connectingPeer ?? new WifiDirectPeer(remoteAddress, "Propriétaire du groupe");
                     serverMode = _connectingPeer is not null;
                 }
+                if (!IPAddress.TryParse(remoteAddress, out _))
+                    throw new InvalidOperationException("L'adresse du propriétaire du groupe Wi-Fi Direct est invalide.");
             }
             else
             {
-                var group = await RequestGroupAsync().ConfigureAwait(false);
-                var remoteDevice = group?.ClientList?.FirstOrDefault();
+                WifiP2pDevice? remoteDevice = null;
+                var deadline = DateTime.UtcNow.AddSeconds(20);
+                while (remoteDevice is null && DateTime.UtcNow < deadline)
+                {
+                    var group = await RequestGroupAsync().ConfigureAwait(false);
+                    remoteDevice = group?.ClientList?.FirstOrDefault();
+                    if (remoteDevice is null)
+                        await Task.Delay(400).ConfigureAwait(false);
+                }
+
                 if (remoteDevice is null)
-                    throw new InvalidOperationException("Le groupe Wi-Fi Direct est formé, mais aucun client distant n'est encore présent.");
-                remoteAddress = await ResolveClientAddressAsync(remoteDevice.DeviceAddress, TimeSpan.FromSeconds(20)).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("Impossible de résoudre l'adresse IP du client Wi-Fi Direct.");
+                    throw new InvalidOperationException("Le groupe Wi-Fi Direct est formé, mais le client distant n'est pas encore visible.");
+
+                // WifiP2pInfo intentionally does not expose the DHCP address of
+                // a client. The Android TCP coordinator obtains it from the
+                // remote endpoint of the accepted Windows TCP socket.
+                remoteAddress = string.Empty;
                 lock (_sync)
                 {
                     peer = _connectingPeer ?? ToPeer(remoteDevice);
                     serverMode = _connectingPeer is not null;
                 }
             }
-
-            if (!IPAddress.TryParse(remoteAddress, out _))
-                throw new InvalidOperationException("Wi-Fi Direct n'a pas fourni d'adresse IP distante valide.");
 
             lock (_sync) _connectedPeer = peer;
             SetStatus(WifiDirectStatus.Connected);
@@ -376,27 +386,6 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
         var completion = new TaskCompletionSource<WifiP2pGroup?>(TaskCreationOptions.RunContinuationsAsynchronously);
         _manager.RequestGroupInfo(_channel, new GroupInfoListener(group => completion.TrySetResult(group)));
         return completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
-    }
-
-    private static async Task<string?> ResolveClientAddressAsync(string mac, TimeSpan timeout)
-    {
-        var until = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < until)
-        {
-            try
-            {
-                foreach (var line in await File.ReadAllLinesAsync("/proc/net/arp").ConfigureAwait(false))
-                {
-                    var columns = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-                    if (columns.Length >= 4 && columns[3].Equals(mac, StringComparison.OrdinalIgnoreCase)
-                        && IPAddress.TryParse(columns[0], out _))
-                        return columns[0];
-                }
-            }
-            catch (IOException) { }
-            await Task.Delay(500).ConfigureAwait(false);
-        }
-        return null;
     }
 
     private void OnBroadcast(Intent? intent)
