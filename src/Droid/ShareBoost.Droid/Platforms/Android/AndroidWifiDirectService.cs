@@ -172,7 +172,7 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                 _connectCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             }
 
-            SetStatus(WifiDirectStatus.Aborded);
+            SetStatus(WifiDirectStatus.Disconnected);
             var config = new WifiP2pConfig
             {
                 DeviceAddress = device.DeviceAddress,
