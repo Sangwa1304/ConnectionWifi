@@ -175,7 +175,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 return;
             }
             Message = "Groupe Wi-Fi Direct établi. Négociation des deux canaux TCP…";
-            await _networkReady.Task.WaitAsync(TimeSpan.FromSeconds(75), _operation.Token);
+            await _networkReady.Task.WaitAsync(TimeSpan.FromMinutes(4), _operation.Token);
             Message = "Connexion et canaux TCP établis. Vous pouvez envoyer ou recevoir des fichiers.";
         }
         catch (OperationCanceledException) { Message = "Connexion annulée."; }
