@@ -486,7 +486,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_disposed || IncomingTransferRequested is null)
             return Task.FromResult(false);
-        return IncomingTransferRequested.Invoke(metadata);
+        return RequestIncomingTransferDecisionAsync(metadata);
+    }
+
+    private async Task<bool> RequestIncomingTransferDecisionAsync(InfoMetas metadata)
+    {
+        try
+        {
+            return await IncomingTransferRequested!(metadata).WaitAsync(TimeSpan.FromMinutes(5), _networkSession?.Token ?? CancellationToken.None);
+        }
+        catch (TimeoutException)
+        {
+            MainThread.BeginInvokeOnMainThread(() => Message = "La demande de réception a expiré.");
+            return false;
+        }
+        catch (OperationCanceledException) { return false; }
     }
 
     private void Wifi_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e)
@@ -556,6 +570,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _operation?.Cancel();
         _networkSession?.Cancel();
         _transferCancellation?.Cancel();
+        _transfer.IncomingTransferRequested -= Transfer_IncomingTransferRequested;
+        _transfer.ProgressChanged -= Transfer_ProgressChanged;
+        _transfer.FilesChanged -= Transfer_FilesChanged;
+        _transfer.FileTransferCompleted -= Transfer_FileTransferCompleted;
         _transfer.Dispose();
         _wifi.StatusChanged -= Wifi_StatusChanged;
         _wifi.PublicherStatusChanged -= Wifi_PublisherStatusChanged;
