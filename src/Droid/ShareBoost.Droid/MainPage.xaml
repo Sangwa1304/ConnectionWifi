@@ -100,6 +100,30 @@
                 </Border>
 
                 <Border Style="{StaticResource Panel}">
+                    <VerticalStackLayout Spacing="10">
+                        <Label Text="Fichiers reçus" FontSize="18" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#0F172A, Dark=White}" />
+                        <CollectionView ItemsSource="{Binding ReceivedFiles}" SelectionMode="None" EmptyView="Aucun fichier reçu pour le moment.">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="models:TransferFileItem">
+                                    <Grid ColumnDefinitions="54,*,Auto,Auto" Padding="0,7" ColumnSpacing="8">
+                                        <Border WidthRequest="50" HeightRequest="50" StrokeThickness="0" BackgroundColor="{AppThemeBinding Light=#EEF2F7, Dark=#263244}" StrokeShape="RoundRectangle 10">
+                                            <Image Source="{Binding Thumbnail}" Aspect="AspectFill" />
+                                            <Label Text="{Binding Kind}" FontSize="9" TextColor="#64748B" HorizontalOptions="Center" VerticalOptions="Center" />
+                                        </Border>
+                                        <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                                            <Label Text="{Binding Name}" FontAttributes="Bold" LineBreakMode="TailTruncation" TextColor="{AppThemeBinding Light=#0F172A, Dark=White}" />
+                                            <Label Text="{Binding SizeLabel}" FontSize="11" TextColor="#64748B" />
+                                        </VerticalStackLayout>
+                                        <Button Grid.Column="2" Text="Ouvrir" FontSize="11" Padding="8,6" Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.OpenReceivedFileCommand}" CommandParameter="{Binding}" />
+                                        <Button Grid.Column="3" Text="Partager" FontSize="11" Padding="8,6" Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ShareReceivedFileCommand}" CommandParameter="{Binding}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border Style="{StaticResource Panel}">
                     <VerticalStackLayout Spacing="8">
                         <Label Text="Session et transfert" FontSize="18" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#0F172A, Dark=White}" />
                         <Label Text="{Binding ConnectionRole}" FontSize="13" TextColor="#2563EB" />
