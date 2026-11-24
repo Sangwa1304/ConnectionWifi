@@ -58,51 +58,65 @@ public sealed class AndroidTransferOrchestrator : IDisposable
         ServerInstance.FilesComming += OnIncomingFiles;
         ServerInstance.FileTransferCompleted += OnFileTransferCompleted;
 
-        string remoteAddress = connection.RemoteIpAddress;
-        if (string.IsNullOrWhiteSpace(remoteAddress))
+        try
         {
-            // Android as group owner: start the role-correct TCP listener first.
-            // The Windows peer connects to it and the accepted socket reveals
-            // the actual client IP without relying on private DHCP state.
-            _acceptedPeerIp = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            _serverTask = ServerInstance.StartConnection(sessionToken);
-            _isRunning = true;
-
-            Task endpointTask = _acceptedPeerIp.Task;
-            Task firstServerEvent = await Task.WhenAny(endpointTask, _serverTask).ConfigureAwait(false);
-            if (firstServerEvent == _serverTask)
-                await _serverTask.ConfigureAwait(false);
-            remoteAddress = await _acceptedPeerIp.Task.WaitAsync(TimeSpan.FromSeconds(50), sessionToken).ConfigureAwait(false);
-        }
-
-        if (!IPAddress.TryParse(remoteAddress, out _))
-            throw new InvalidOperationException("Le pair TCP n'a pas fourni une adresse IP distante valide.");
-
-        ClientInstance = new TcpClientStreaming(remoteAddress, connection.ServerMode);
-        ClientInstance.StreamingCreated += OnClientChannelReady;
-        ClientInstance.FileChange += OnFilesChanged;
-        ClientInstance.CounterChange += OnProgressChanged;
-        ClientInstance.FilesComming += OnIncomingFiles;
-        ClientInstance.FileTransferCompleted += OnFileTransferCompleted;
-
-        if (_serverTask is null)
-        {
-            // With a known endpoint, preserve Windows' role-dependent startup order.
-            if (connection.ServerMode)
+            string remoteAddress = connection.RemoteIpAddress;
+            if (string.IsNullOrWhiteSpace(remoteAddress))
             {
+                // Android as group owner: start the role-correct TCP listener first.
+                // The Windows peer connects to it and the accepted socket reveals
+                // the actual client IP without relying on private DHCP state.
+                _acceptedPeerIp = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 _serverTask = ServerInstance.StartConnection(sessionToken);
-                _clientTask = ClientInstance.StartConnection(sessionToken);
+                _isRunning = true;
+    
+                Task endpointTask = _acceptedPeerIp.Task;
+                Task firstServerEvent = await Task.WhenAny(endpointTask, _serverTask).ConfigureAwait(false);
+                if (firstServerEvent == _serverTask)
+                    await _serverTask.ConfigureAwait(false);
+                remoteAddress = await _acceptedPeerIp.Task.WaitAsync(TimeSpan.FromSeconds(50), sessionToken).ConfigureAwait(false);
+            }
+    
+            if (!IPAddress.TryParse(remoteAddress, out _))
+                throw new InvalidOperationException("Le pair TCP n'a pas fourni une adresse IP distante valide.");
+    
+            ClientInstance = new TcpClientStreaming(remoteAddress, connection.ServerMode);
+            ClientInstance.StreamingCreated += OnClientChannelReady;
+            ClientInstance.FileChange += OnFilesChanged;
+            ClientInstance.CounterChange += OnProgressChanged;
+            ClientInstance.FilesComming += OnIncomingFiles;
+            ClientInstance.FileTransferCompleted += OnFileTransferCompleted;
+    
+            if (_serverTask is null)
+            {
+                // With a known endpoint, preserve Windows' role-dependent startup order.
+                if (connection.ServerMode)
+                {
+                    _serverTask = ServerInstance.StartConnection(sessionToken);
+                    _clientTask = ClientInstance.StartConnection(sessionToken);
+                }
+                else
+                {
+                    _clientTask = ClientInstance.StartConnection(sessionToken);
+                    _serverTask = ServerInstance.StartConnection(sessionToken);
+                }
+                _isRunning = true;
             }
             else
             {
                 _clientTask = ClientInstance.StartConnection(sessionToken);
-                _serverTask = ServerInstance.StartConnection(sessionToken);
             }
-            _isRunning = true;
+    
+    
         }
-        else
+        catch (Exception ex)
         {
-            _clientTask = ClientInstance.StartConnection(sessionToken);
+            _ready?.TrySetException(ex);
+            _sessionCancellation?.Cancel();
+            ServerInstance?.Stop();
+            ClientInstance?.Stop();
+            _isRunning = false;
+            throw;
         }
 
         Task serverTask = _serverTask!;
