@@ -65,6 +65,10 @@ public sealed class AndroidTransferOrchestrator : IDisposable
             // client's IP. Windows' client channel connects to this server;
             // its accepted socket supplies the authoritative remote endpoint.
             _acceptedPeerIp = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task endpointTask = _acceptedPeerIp.Task;
+            Task firstServerEvent = await Task.WhenAny(endpointTask, _serverTask).ConfigureAwait(false);
+            if (firstServerEvent == _serverTask)
+                await _serverTask.ConfigureAwait(false);
             remoteAddress = await _acceptedPeerIp.Task.WaitAsync(TimeSpan.FromSeconds(50), sessionToken).ConfigureAwait(false);
         }
 
