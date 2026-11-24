@@ -21,11 +21,11 @@ public partial class MainPage : ContentPage
         if (request.Metas.Length > 8)
             names += $"\n… et {request.Metas.Length - 8} autre(s) fichier(s)";
         var size = FormatSize(request.Length);
-        return await DisplayAlert(
+        return await MainThread.InvokeOnMainThreadAsync(() => DisplayAlert(
             "Réception de fichiers",
             $"Un appareil souhaite envoyer {request.Metas.Length} fichier(s) ({size}) :\n\n{names}\n\nAutoriser la réception ?",
             "Accepter",
-            "Refuser");
+            "Refuser"));
     }
 
     private static string FormatSize(long bytes)
