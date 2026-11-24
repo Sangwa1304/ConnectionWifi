@@ -103,7 +103,7 @@
                     <VerticalStackLayout Spacing="8">
                         <Label Text="Session et transfert" FontSize="18" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#0F172A, Dark=White}" />
                         <Label Text="{Binding ConnectionRole}" FontSize="13" TextColor="#2563EB" />
-                        <Label Text="{Binding GroupOwnerAddress}" FontSize="12" TextColor="#64748B" />
+                        <Label Text="{Binding RemoteAddress}" FontSize="12" TextColor="#64748B" />
                         <ProgressBar Progress="{Binding TransferProgress}" ProgressColor="#2563EB" />
                         <Label Text="{Binding TransferStatus}" FontSize="12" TextColor="#64748B" />
                         <Label Text="Les deux canaux TCP réutilisent le protocole existant de Windows. Toute réception entrante doit être acceptée explicitement." FontSize="12" TextColor="#64748B" />
