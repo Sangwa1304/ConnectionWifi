@@ -52,7 +52,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsConnected => _wifi.CurrentStatus == WifiDirectStatus.Connected;
     public bool IsTransferReady => _transfer.IsRunning;
     public string ConnectionRole => _connection is null ? "Aucune session" : _connection.ServerMode ? "Initiateur — canaux TCP actifs" : "Répondant — canaux TCP actifs";
-    public string RemoteAddress => _connection?.RemoteIpAddress ?? "Adresse distante non résolue";
+    public string RemoteAddress => string.IsNullOrWhiteSpace(_connection?.RemoteIpAddress)
+        ? "Adresse distante négociée via TCP"
+        : _connection.RemoteIpAddress;
     public string SelectedPeerName => _selectedPeer?.Name ?? "Aucun appareil sélectionné";
     public bool HasSelectedFiles => SelectedFiles.Count > 0;
     public string SelectedFilesSummary => $"{SelectedFiles.Count} fichier(s) · {FormatSize(SelectedFiles.Sum(x => x.Length))}";
