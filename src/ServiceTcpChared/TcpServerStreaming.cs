@@ -14,6 +14,9 @@ public class TcpServerStreaming : StreamingData, ITcpStreaming
 
     public IPAddress Address { get; }
 
+    /// <summary>Remote endpoint of the accepted TCP client, available after StreamingCreated.</summary>
+    public string? RemoteIpAddress => (Client?.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString();
+
     public override event Action? StreamingCreated;
     public override event Action? ConnectionClosed;
 
