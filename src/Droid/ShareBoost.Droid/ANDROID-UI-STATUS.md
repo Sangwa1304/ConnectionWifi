@@ -1,32 +1,41 @@
-# Android — interface de partage et MVVM
+# Android — alignement sur l'architecture Windows
 
-## État livré dans cette branche
+## Contrat Wi-Fi Direct partagé
 
-L'interface MAUI Android a été remplacée par un écran de partage organisé autour de `MainViewModel` :
+Le contrat `IWifiDirectService` et les modèles `WifiDirectPeer`, `WifiDirectStatus`, `WifiDirectConnectionEventArgs`, les événements de pairs et les statuts ont été déplacés dans `src/WifiDirect.Contracts` (cible `net10.0`). Windows et Android référencent maintenant le même assembly.
 
-- initialisation Wi-Fi Direct avec demande de permissions Android ;
-- accès au panneau système de connectivité Android (l'application ne tente pas de basculer silencieusement le Wi-Fi) ;
-- publication du téléphone en tant que propriétaire potentiel du groupe ;
-- découverte des pairs, actualisation et suppression des entrées ;
-- demande de connexion à un pair et attente de la confirmation effective de formation du groupe ;
-- déconnexion ;
-- sélection multiple via le sélecteur de documents Android (Storage Access Framework, donc navigation dans les fournisseurs de fichiers autorisés par l'utilisateur) ;
-- copie contrôlée des éléments sélectionnés dans le cache privé de l'application pour stabiliser les sources de fichiers pendant une session ;
-- file de sélection avec nom, type, taille, miniature locale pour les images et retrait individuel ou global ;
-- enregistrement DI de la page, du ViewModel et du service Wi-Fi Direct.
+L'interface ne transporte aucun type WinRT. Windows conserve `WiFiDirectConnectionRequest` dans son dictionnaire privé de demandes en attente et ne publie au ViewModel que le token et les métadonnées du pair. L'implémentation Android `AndroidWifiDirectService` implémente directement `IWifiDirectService`.
 
-## Consentement et actions système
+Les deux ViewModels consomment le même contrat de connexion : `WifiDirectConnectionEventArgs(ServerMode, RemoteIpAddress, Id)`. Le rôle `ServerMode` conserve la convention de Windows (initiateur = true, répondant = false), afin que les ports TCP et l'ordre logique des deux canaux restent identiques.
 
-L'application n'active pas le Wi-Fi par contournement, ne rejoint pas un groupe sans action utilisateur et n'accepte pas automatiquement les invitations entrantes. Les demandes de négociation entrantes restent gérées par l'interface système Android. Pour une demande sortante, l'interface indique explicitement à l'utilisateur qu'une confirmation système peut être requise.
+## Transport de fichiers réutilisé
 
-Le sélecteur de fichiers est le sélecteur natif Android : l'accès aux fichiers est accordé par l'utilisateur au moment de la sélection, sans permission générale de lecture de tout le stockage.
+Android utilise directement `TcpServerStreaming`, `TcpClientStreaming`, `InfoMeta` et le framing existant de `ServiceTcpChared`. Aucun protocole parallèle n'a été introduit.
 
-## Transfert : blocage volontaire avant activation
+- Les ports et rôles restent ceux du transport Windows.
+- Les deux canaux doivent être ouverts avant d'activer l'envoi.
+- Les demandes de réception entrantes déclenchent une confirmation dans l'interface Android.
+- Les fichiers reçus sont validés par la vérification SHA-256 existante avant leur déplacement dans le dossier privé `FileSystem.AppDataDirectory/Received`.
+- La galerie reçue fournit aperçu image, ouverture avec l'application Android associée et partage via la feuille de partage native.
 
-Le bouton « Envoyer les fichiers » est volontairement désactivé. Le transport TCP Windows existant utilise deux canaux et des rôles de ports définis par son propre protocole. L'API Wi-Fi Direct Android ne fournit pas toujours l'adresse IP du client lorsque le téléphone est propriétaire du groupe. Activer un envoi Android sans résoudre le rôle réseau, l'identification de l'endpoint et le handshake commun produirait un comportement non fiable et non interopérable.
+Lorsque le téléphone Android est propriétaire du groupe, `WifiP2pInfo` ne fournit pas l'adresse IP du client. Le transport Android démarre donc son serveur TCP sur le port correspondant au rôle et récupère l'adresse distante réelle à partir du socket TCP accepté par le client Windows. Il ne devine pas l'adresse DHCP.
 
-La prochaine étape doit établir un contrat de session commun Windows/Android : négociation du rôle, découverte authentifiée de l'endpoint TCP, consentement de réception applicatif, framing versionné, contrôle d'intégrité, reprise/annulation et stockage de destination via SAF. L'envoi ne doit être activé qu'après ces tests d'interopérabilité.
+## Différences imposées par Android
 
-## Vérification
+Android ne permet pas à une application ordinaire de remplacer la boîte de dialogue système d'acceptation d'une invitation Wi-Fi Direct entrante par un dialogue applicatif. L'OS gère cette négociation ; ShareBoost ne l'accepte jamais silencieusement. Le consentement applicatif séparé est demandé avant la réception des fichiers.
 
-Aucun build Android ni test sur appareil physique n'a été exécuté dans l'environnement d'édition. Avant une livraison commerciale, vérifier au minimum Android 10, 12, 13, 14 et 15+ ; autorisations refusées/révoquées ; Wi-Fi coupé ; refus de demande ; formation du groupe dans les deux rôles ; sélection de gros fichiers depuis différents fournisseurs SAF ; reprise après mise en arrière-plan et rotation/process death.
+L'API Android P2P ne reproduit pas exactement le couple Windows AdvertisementPublisher + DeviceWatcher. La publication Android crée un groupe propriétaire ; la découverte et la publication sont donc exposées comme actions distinctes dans l'interface plutôt que de prétendre qu'elles sont simultanées.
+
+## Vérification avant livraison
+
+Aucun build Android/Windows ni test sur appareils physiques n'a été exécuté dans l'environnement d'édition. Avant release, exécuter les tests de compilation et d'interopérabilité suivants :
+
+- Windows initiateur / Android répondant, Android initiateur / Windows répondant ;
+- Android propriétaire du groupe et Windows propriétaire du groupe ;
+- acceptation et refus de l'invitation système ;
+- acceptation et refus de la demande de transfert ;
+- transferts multiples, fichiers volumineux, doublons, interruption réseau et annulation ;
+- vérification SHA-256, ouverture et partage des fichiers reçus ;
+- Android 10 à 15+ (permissions, restrictions d'arrière-plan et variations OEM).
+
+Le bouton d'envoi n'est activable qu'après établissement des deux canaux TCP.
