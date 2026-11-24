@@ -69,6 +69,7 @@ public class StreamingData
 
     public event Action? CounterChange;
     public event Action? FileChange;
+    public event Action<FileFinishe>? FileTransferCompleted;
 
     public virtual event Action? StreamingCreated;
     public virtual event Action? ConnectionClosed;
@@ -363,11 +364,13 @@ public class StreamingData
 
             await SendFilePayloadAsync(path, requestedMeta, token).ConfigureAwait(false);
 
-            FilesFiniched.Add(new FileFinishe(
+            var sent = new FileFinishe(
                 requestedMeta.NameWithExtension,
                 requestedMeta.Length,
                 TransfertType.Envoi,
-                DateTime.Now));
+                DateTime.Now);
+            FilesFiniched.Add(sent);
+            FileTransferCompleted?.Invoke(sent);
 
             pathList.Remove(requestedMeta);
 
@@ -628,12 +631,13 @@ public class StreamingData
                 }
             }
 
-            FilesFiniched.Add(
-                new FileFinishe(
-                    metadata.NameWithExtension,
-                    metadata.Length,
-                    TransfertType.Recu,
-                    DateTime.Now));
+            var received = new FileFinishe(
+                metadata.NameWithExtension,
+                metadata.Length,
+                TransfertType.Recu,
+                DateTime.Now);
+            FilesFiniched.Add(received);
+            FileTransferCompleted?.Invoke(received);
 
             Counter = 0;
             Interlocked.Exchange(ref _totalCounter, 0);
