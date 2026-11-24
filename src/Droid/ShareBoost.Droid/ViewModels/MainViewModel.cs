@@ -391,6 +391,17 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 WifiDirectStatus.NoArdwareSupported => "Matériel non pris en charge",
                 _ => "Initialisation"
             };
+            if (e.Status != WifiDirectStatus.Connected && _connection is not null)
+            {
+                _networkSession?.Cancel();
+                _transfer.Stop();
+                _connection = null;
+                _selectedPeer = null;
+                OnPropertyChanged(nameof(SelectedPeerName));
+                OnPropertyChanged(nameof(ConnectionRole));
+                OnPropertyChanged(nameof(RemoteAddress));
+                OnPropertyChanged(nameof(IsTransferReady));
+            }
             OnPropertyChanged(nameof(IsConnected));
             RaiseCommands();
         });
@@ -521,6 +532,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         MainThread.BeginInvokeOnMainThread(() =>
         {
             _connection = null;
+            _selectedPeer = null;
+            OnPropertyChanged(nameof(SelectedPeerName));
             Message = $"Connexion fermée : {e.Peer.Name}.";
             OnPropertyChanged(nameof(IsConnected));
             OnPropertyChanged(nameof(IsTransferReady));
