@@ -388,7 +388,7 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                 }
 
                 if (remoteDevice is null)
-                    throw new InvalidOperationException("Le groupe Wi-Fi Direct est formé, mais le client distant n'est pas encore visible.");
+                    return; // A published group owner may exist before any remote peer joins.
 
                 // WifiP2pInfo intentionally does not expose the DHCP address of
                 // a client. The Android TCP coordinator obtains it from the
