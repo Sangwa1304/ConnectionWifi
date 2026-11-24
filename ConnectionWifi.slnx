@@ -1,18 +1,17 @@
 <Solution>
   <Configurations>
-    <Platform Name="Any CPU" />
     <Platform Name="ARM64" />
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="LibraryModels/LibraryMI.csproj" />
-  <Project Path="ServiceTcpChared/ServiceTcpChared.csproj" />
-  <Project Path="ShareBoost.UI/ShareBoost.UI.csproj" Id="2534da51-daf2-490e-8df7-bd0c0479e1cc">
-    <Platform Solution="*|Any CPU" Project="x64" />
+  <Project Path="src/Droid/ShareBoost.Droid/ShareBoost.Droid.csproj" Id="a84c173e-0ed2-4f19-970d-e2bb4154437c" />
+  <Project Path="src/LibraryModels/LibraryMI.csproj" />
+  <Project Path="src/ServiceTcpChared/ServiceTcpChared.csproj" />
+  <Project Path="src/Wind/ShareBoost.UI/ShareBoost.UI.csproj">
     <Platform Solution="*|ARM64" Project="ARM64" />
     <Platform Solution="*|x64" Project="x64" />
     <Platform Solution="*|x86" Project="x86" />
     <Deploy />
   </Project>
-  <Project Path="WindowsWifiLibrary/WindowsWifiLibrary.csproj" />
+  <Project Path="src/Wind/WindowsWifiLibrary/WindowsWifiLibrary.csproj" />
 </Solution>

@@ -43,8 +43,8 @@
     <ProjectCapability Include="Msix" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\LibraryModels\LibraryMI.csproj" />
-    <ProjectReference Include="..\ServiceTcpChared\ServiceTcpChared.csproj" />
+    <ProjectReference Include="..\..\LibraryModels\LibraryMI.csproj" />
+    <ProjectReference Include="..\..\ServiceTcpChared\ServiceTcpChared.csproj" />
     <ProjectReference Include="..\WindowsWifiLibrary\WindowsWifiLibrary.csproj" />
   </ItemGroup>
 
