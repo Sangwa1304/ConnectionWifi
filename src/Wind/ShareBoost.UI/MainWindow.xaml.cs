@@ -133,7 +133,7 @@ public sealed partial class MainWindow : Window
             {
                 XamlRoot = LayoutRoot.XamlRoot,
                 Title = "Appairage entrant",
-                Content = $"{e.Request.DeviceInformation.Name} souhaite s’appairer en Wi-Fi Direct. Autoriser ?",
+                Content = $"{e.Peer.Name} souhaite s’appairer en Wi-Fi Direct. Autoriser ?",
                 PrimaryButtonText = "Autoriser",
                 CloseButtonText = "Refuser",
                 DefaultButton = ContentDialogButton.Close
