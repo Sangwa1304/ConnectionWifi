@@ -4,7 +4,17 @@ public enum WifiDirectStatus { Disconnected, Connected, Aborded, Closed, NoArdwa
 public enum WifiDirectWatcherStatus { Started, Closed }
 public enum WifiDirectPublicherStatus { Started, Closed }
 
-public sealed record WifiDirectPeer(string Id, string Name) : IEquatable<WifiDirectPeer>;
+public sealed class WifiDirectPeer(string id, string name) : IEquatable<WifiDirectPeer>
+{
+    public string Id { get; } = id;
+    public string Name { get; } = name;
+    public bool Equals(WifiDirectPeer? other) => other is not null && Id == other.Id;
+    public override bool Equals(object? obj) => Equals(obj as WifiDirectPeer);
+    public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Id);
+    public static bool operator ==(WifiDirectPeer? left, WifiDirectPeer? right) => EqualityComparer<WifiDirectPeer>.Default.Equals(left, right);
+    public static bool operator !=(WifiDirectPeer? left, WifiDirectPeer? right) => !(left == right);
+}
+
 public sealed record WifiDirectPeerEventArgs(WifiDirectPeer Peer);
 public sealed record WifiDirectStatusEventArgs(WifiDirectStatus Status);
 public sealed record WifiDirectWatcherStatusEventArgs(WifiDirectWatcherStatus Status);
