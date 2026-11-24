@@ -214,6 +214,15 @@ public sealed class AndroidWifiDirectService : IDisposable
         }
     }
 
+    /// <summary>Opens Android's system connectivity panel; apps cannot silently toggle Wi-Fi on modern Android.</summary>
+    public void OpenWifiSettings()
+    {
+        ThrowIfDisposed();
+        var intent = new Intent(Android.Provider.Settings.Panel.ActionInternetConnectivity)
+            .AddFlags(ActivityFlags.NewTask);
+        _context.StartActivity(intent);
+    }
+
     public Task DisconnectAsync()
     {
         ThrowIfDisposed();
