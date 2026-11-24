@@ -1,3 +1,4 @@
+using System.Net;
 using System.Runtime.ExceptionServices;
 using LibraryMI.Models;
 using ServiceTcpChared;
@@ -5,6 +6,12 @@ using WindowsWifiLibrary.Models;
 
 namespace ShareBoost.Droid.Services;
 
+/// <summary>
+/// Runs the same paired TCP server/client channels, ports, framing and role
+/// ordering as the Windows MainViewModel. When Android is group owner, the
+/// peer IP is learned from the accepted TCP socket instead of guessing a DHCP
+/// address from Wi-Fi Direct metadata.
+/// </summary>
 public sealed class AndroidTransferOrchestrator : IDisposable
 {
     public TcpClientStreaming? ClientInstance { get; private set; }
@@ -12,10 +19,12 @@ public sealed class AndroidTransferOrchestrator : IDisposable
     public event Func<InfoMetas, Task<bool>>? IncomingTransferRequested;
     public event Action? ProgressChanged;
     public event Action? FilesChanged;
+
     private Task? _serverTask;
     private Task? _clientTask;
     private CancellationTokenSource? _sessionCancellation;
     private TaskCompletionSource<bool>? _ready;
+    private TaskCompletionSource<string>? _acceptedPeerIp;
     private int _readyChannels;
     private volatile bool _isRunning;
     private bool _disposed;
@@ -33,8 +42,6 @@ public sealed class AndroidTransferOrchestrator : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(connection);
-        if (string.IsNullOrWhiteSpace(connection.RemoteIpAddress))
-            throw new ArgumentException("L'adresse IP distante n'a pas été résolue.", nameof(connection));
 
         Stop();
         _sessionCancellation?.Dispose();
@@ -44,35 +51,44 @@ public sealed class AndroidTransferOrchestrator : IDisposable
         _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         ServerInstance = new TcpServerStreaming(connection.ServerMode);
-        ClientInstance = new TcpClientStreaming(connection.RemoteIpAddress, connection.ServerMode);
-        ServerInstance.StreamingCreated += OnChannelReady;
-        ClientInstance.StreamingCreated += OnChannelReady;
+        ServerInstance.StreamingCreated += OnServerChannelReady;
         ServerInstance.FileChange += OnFilesChanged;
-        ClientInstance.FileChange += OnFilesChanged;
         ServerInstance.CounterChange += OnProgressChanged;
-        ClientInstance.CounterChange += OnProgressChanged;
         ServerInstance.FilesComming += OnIncomingFiles;
+        _serverTask = ServerInstance.StartConnection(sessionToken);
+        _isRunning = true;
+
+        string remoteAddress = connection.RemoteIpAddress;
+        if (string.IsNullOrWhiteSpace(remoteAddress))
+        {
+            // If Android is the group owner, WifiP2pInfo does not expose the
+            // client's IP. Windows' client channel connects to this server;
+            // its accepted socket supplies the authoritative remote endpoint.
+            _acceptedPeerIp = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            remoteAddress = await _acceptedPeerIp.Task.WaitAsync(TimeSpan.FromSeconds(50), sessionToken).ConfigureAwait(false);
+        }
+
+        if (!IPAddress.TryParse(remoteAddress, out _))
+            throw new InvalidOperationException("Le pair TCP n'a pas fourni une adresse IP distante valide.");
+
+        ClientInstance = new TcpClientStreaming(remoteAddress, connection.ServerMode);
+        ClientInstance.StreamingCreated += OnClientChannelReady;
+        ClientInstance.FileChange += OnFilesChanged;
+        ClientInstance.CounterChange += OnProgressChanged;
         ClientInstance.FilesComming += OnIncomingFiles;
 
         if (connection.ServerMode)
-        {
-            _serverTask = ServerInstance.StartConnection(sessionToken);
             _clientTask = ClientInstance.StartConnection(sessionToken);
-        }
         else
-        {
             _clientTask = ClientInstance.StartConnection(sessionToken);
-            _serverTask = ServerInstance.StartConnection(sessionToken);
-        }
 
-        _isRunning = true;
         Task serverTask = _serverTask;
         Task clientTask = _clientTask;
         Task first = await Task.WhenAny(serverTask, clientTask).ConfigureAwait(false);
         Exception? failure = null;
         try { await first.ConfigureAwait(false); }
         catch (OperationCanceledException) when (sessionToken.IsCancellationRequested) { }
-        catch (Exception ex) { failure = ex; _ready.TrySetException(ex); }
+        catch (Exception ex) { failure = ex; _ready?.TrySetException(ex); }
         finally
         {
             _sessionCancellation.Cancel();
@@ -82,7 +98,7 @@ public sealed class AndroidTransferOrchestrator : IDisposable
 
         try { await Task.WhenAll(serverTask, clientTask).ConfigureAwait(false); }
         catch (OperationCanceledException) when (sessionToken.IsCancellationRequested) { }
-        catch (Exception ex) { failure ??= ex; _ready.TrySetException(ex); }
+        catch (Exception ex) { failure ??= ex; _ready?.TrySetException(ex); }
 
         _isRunning = false;
         if (failure is not null) ExceptionDispatchInfo.Capture(failure).Throw();
@@ -99,7 +115,20 @@ public sealed class AndroidTransferOrchestrator : IDisposable
     private Task<bool> OnIncomingFiles(IEnumerable<InfoMeta> files) =>
         IncomingTransferRequested?.Invoke(new InfoMetas(files)) ?? Task.FromResult(false);
 
-    private void OnChannelReady()
+    private void OnServerChannelReady()
+    {
+        if (_acceptedPeerIp is not null)
+        {
+            var address = ServerInstance?.RemoteIpAddress;
+            if (!string.IsNullOrWhiteSpace(address))
+                _acceptedPeerIp.TrySetResult(address);
+        }
+        MarkChannelReady();
+    }
+
+    private void OnClientChannelReady() => MarkChannelReady();
+
+    private void MarkChannelReady()
     {
         if (Interlocked.Increment(ref _readyChannels) == 2)
             _ready?.TrySetResult(true);
@@ -112,6 +141,7 @@ public sealed class AndroidTransferOrchestrator : IDisposable
     {
         _isRunning = false;
         _sessionCancellation?.Cancel();
+        _acceptedPeerIp?.TrySetCanceled();
         ServerInstance?.Stop();
         ClientInstance?.Stop();
     }
