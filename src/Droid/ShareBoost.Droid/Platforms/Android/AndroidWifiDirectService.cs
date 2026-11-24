@@ -374,7 +374,7 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
             else
             {
                 WifiP2pDevice? remoteDevice = null;
-                var deadline = DateTime.UtcNow.AddSeconds(20);
+                var deadline = DateTime.UtcNow.AddSeconds(4);
                 while (remoteDevice is null && DateTime.UtcNow < deadline)
                 {
                     try
@@ -388,7 +388,16 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                 }
 
                 if (remoteDevice is null)
+                {
+                    WifiDirectPeer? previous;
+                    lock (_sync) { previous = _connectedPeer; _connectedPeer = null; }
+                    if (previous is not null)
+                    {
+                        SetStatus(WifiDirectStatus.Disconnected);
+                        ConnectionClosed?.Invoke(this, new WifiDirectPeerEventArgs(previous));
+                    }
                     return; // A published group owner may exist before any remote peer joins.
+                }
 
                 // WifiP2pInfo intentionally does not expose the DHCP address of
                 // a client. The Android TCP coordinator obtains it from the
