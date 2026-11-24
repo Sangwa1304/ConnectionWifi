@@ -41,6 +41,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public double TransferProgress { get => _transferProgress; private set => Set(ref _transferProgress, value); }
     public bool CanSend => IsConnected && HasSelectedFiles && !IsBusy;
 
+    public ICommand OpenWifiSettingsCommand { get; }
     public ICommand InitializeCommand { get; }
     public ICommand DiscoverCommand { get; }
     public ICommand PublishCommand { get; }
@@ -56,6 +57,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public MainViewModel(AndroidWifiDirectService wifi)
     {
         _wifi = wifi;
+        OpenWifiSettingsCommand = new AsyncCommand(_ => { _wifi.OpenWifiSettings(); return Task.CompletedTask; }, _ => !IsBusy);
         InitializeCommand = new AsyncCommand(_ => InitializeAsync(), _ => !IsInitialized && !IsBusy);
         DiscoverCommand = new AsyncCommand(_ => DiscoverAsync(), _ => IsInitialized && !IsBusy);
         PublishCommand = new AsyncCommand(_ => PublishAsync(), _ => IsInitialized && !IsBusy);
@@ -276,7 +278,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void RaiseCommands()
     {
-        foreach (var command in new[] { InitializeCommand, DiscoverCommand, PublishCommand, ConnectCommand, DisconnectCommand, PickFilesCommand, RemoveFileCommand, ClearFilesCommand, SendCommand })
+        foreach (var command in new[] { OpenWifiSettingsCommand, InitializeCommand, DiscoverCommand, PublishCommand, ConnectCommand, DisconnectCommand, PickFilesCommand, RemoveFileCommand, ClearFilesCommand, SendCommand })
             (command as AsyncCommand)?.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanSend));
     }
