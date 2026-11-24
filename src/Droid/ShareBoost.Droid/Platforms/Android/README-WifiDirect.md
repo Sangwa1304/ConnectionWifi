@@ -1,23 +1,31 @@
 # Android Wi-Fi Direct
 
-The Android implementation is exposed by `AndroidWifiDirectService` and registered as a singleton in MAUI dependency injection.
+`AndroidWifiDirectService` implements the shared `WindowsWifiLibrary.Interfaces.IWifiDirectService` contract from `src/WifiDirect.Contracts`. The Android app's ViewModel consumes that interface; it does not use Android-only peer/status DTOs.
 
-## Connection consent
+## Connection orchestration
 
-- Discovering a peer never connects to it.
-- `ConnectToPeerAsync` only submits a negotiation request. It does not report success from the `ActionListener.OnSuccess` callback.
-- The service completes the request only after Android reports `GroupFormed == true`.
-- On Android 13+, `WIFI_P2P_REQUEST_RESPONSE_CHANGED_ACTION` is also observed so an explicit rejection is reported immediately.
-- Incoming connection consent is controlled by Android's Wi-Fi Direct system UI. The public `WifiP2pManager` API does not expose a normal app callback to intercept an incoming request and replace that system approval with an in-app Accept/Reject dialog. The app therefore does not auto-accept incoming peers.
+- The shared peer identity, status enums, publisher/watcher status events, invitation metadata and connection event args are platform-neutral.
+- The initiator role is represented by `WifiDirectConnectionEventArgs.ServerMode`, using the same Windows convention.
+- Discovery does not establish a connection. An outgoing connection completes only after Android reports a formed P2P group.
+- Android system UI controls incoming Wi-Fi Direct consent. The app never auto-accepts or silently connects. The Android public API cannot replace the system's incoming P2P confirmation with an app-owned invitation dialog.
+- The app separately asks the user to accept or refuse every incoming file-transfer batch.
 
-## Permissions
+## Permissions and system controls
 
-`InitializeAsync` requests `NEARBY_WIFI_DEVICES` on Android 13+ and `ACCESS_FINE_LOCATION` on earlier Android versions. The manifest declares the Wi-Fi state/change permissions required by `WifiP2pManager`.
+`InitializeAsync` requests `NEARBY_WIFI_DEVICES` on Android 13+ and location permission on earlier releases. The app opens the native connectivity panel instead of attempting to toggle Wi-Fi programmatically.
 
-## TCP integration limitation
+## Windows TCP compatibility
 
-Android's `WifiP2pInfo` provides the group-owner address, not a guaranteed remote-client address. When Android is group owner, Android may redact that address for ordinary applications. Do not pass `GroupOwnerAddress` as though it were always the Windows peer's IP. The TCP layer needs a role-aware endpoint strategy (or a small authenticated endpoint handshake after P2P formation) before file transfer can be considered interoperable in both directions.
+Android reuses `TcpServerStreaming`, `TcpClientStreaming`, `InfoMeta` and the existing TCP framing from `ServiceTcpChared`. It preserves the same two ports and role-dependent server/client ordering as the Windows ViewModel.
 
-## Lifecycle
+When Android is the group owner, `WifiP2pInfo` does not provide the remote client's IP. The Android transport starts the role-correct TCP server and reads the actual remote endpoint from the accepted Windows TCP socket; it does not guess the DHCP address.
 
-Call `InitializeAsync` while the app is in the foreground, then call `StartSubscribingAsync` for discovery or `StartPublishingAsync` to create a group owner. Call `DisconnectAsync` to remove the current group and `Dispose` when the service is no longer needed.
+Received files are SHA-256 validated by the shared transport and stored in the app's private `Received` directory. The Android UI exposes native Open and Share actions for those files.
+
+## Android platform behavior
+
+The Windows AdvertisementPublisher + DeviceWatcher pair cannot be reproduced as a simultaneous pair with the public Android P2P API. Android group publication and peer discovery are separate operations. The UI exposes them separately, while the shared interface remains consistent.
+
+## Validation
+
+The repository changes have not yet been compiled or tested on physical Windows/Android devices. Verify both initiator directions, both group-owner roles, accept/refuse flows, large and multiple files, cancellation, reconnect, hash validation and Android API/OEM variations before release.
