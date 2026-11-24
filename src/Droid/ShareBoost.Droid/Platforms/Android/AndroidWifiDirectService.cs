@@ -387,13 +387,3 @@ public enum AndroidWifiDirectStatus
 public sealed record AndroidWifiDirectPeer(string Address, string Name, WifiP2pDeviceState Status);
 
 public sealed record AndroidWifiDirectConnection(bool IsGroupOwner, string GroupOwnerAddress, bool GroupFormed);
-
-
-/// <summary>Runtime permission required by Android's Wi-Fi Direct discovery APIs.</summary>
-public sealed class Permissions.NearbyWifiDevices : Permissions.BasePlatformPermission
-{
-    protected override string[] RequiredPermissions =>
-        Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu
-            ? [Android.Manifest.Permission.NearbyWifiDevices]
-            : [Android.Manifest.Permission.AccessFineLocation];
-}
