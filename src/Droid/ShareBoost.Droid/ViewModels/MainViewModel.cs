@@ -28,7 +28,15 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     public string Status { get => _status; private set => Set(ref _status, value); }
     public string Message { get => _message; private set => Set(ref _message, value); }
-    public string Error { get => _error; private set => Set(ref _error, value); }
+    public string Error
+    {
+        get => _error;
+        private set
+        {
+            if (Set(ref _error, value))
+                OnPropertyChanged(nameof(HasError));
+        }
+    }
     public bool HasError => !string.IsNullOrWhiteSpace(Error);
     public bool IsBusy { get => _isBusy; private set { if (Set(ref _isBusy, value)) RaiseCommands(); } }
     public bool IsInitialized { get => _isInitialized; private set { if (Set(ref _isInitialized, value)) RaiseCommands(); } }
