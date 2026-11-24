@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using ShareBoost.Droid.Platforms.Android;
+using ShareBoost.Droid.ViewModels;
 
 namespace ShareBoost.Droid
 {
@@ -17,6 +18,9 @@ namespace ShareBoost.Droid
                 });
 
             builder.Services.AddSingleton<AndroidWifiDirectService>();
+            builder.Services.AddSingleton<MainViewModel>();
+            builder.Services.AddSingleton<MainPage>();
+            builder.Services.AddSingleton<AppShell>();
 
 #if DEBUG
             builder.Logging.AddDebug();
