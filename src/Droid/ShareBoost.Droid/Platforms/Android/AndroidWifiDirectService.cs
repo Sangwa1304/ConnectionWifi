@@ -371,7 +371,12 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                 }
             }
 
-            lock (_sync) _connectedPeer = peer;
+            lock (_sync)
+            {
+                if (_status == WifiDirectStatus.Connected)
+                    return;
+                _connectedPeer = peer;
+            }
             SetStatus(WifiDirectStatus.Connected);
             var args = new WifiDirectConnectionEventArgs(serverMode, remoteAddress, peer.Id);
             ConnectionEstablished?.Invoke(this, args);
