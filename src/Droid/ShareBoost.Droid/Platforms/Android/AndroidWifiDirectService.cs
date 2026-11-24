@@ -347,8 +347,12 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                 var deadline = DateTime.UtcNow.AddSeconds(20);
                 while (remoteDevice is null && DateTime.UtcNow < deadline)
                 {
-                    var group = await RequestGroupAsync().ConfigureAwait(false);
-                    remoteDevice = group?.ClientList?.FirstOrDefault();
+                    try
+                    {
+                        var group = await RequestGroupAsync().ConfigureAwait(false);
+                        remoteDevice = group?.ClientList?.FirstOrDefault();
+                    }
+                    catch (TimeoutException) { }
                     if (remoteDevice is null)
                         await Task.Delay(400).ConfigureAwait(false);
                 }
