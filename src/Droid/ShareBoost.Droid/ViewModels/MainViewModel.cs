@@ -450,12 +450,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 var run = _transfer.StartAsync(connection, token);
                 Task ready = _transfer.WaitUntilReadyAsync(token);
                 Task first = await Task.WhenAny(ready, run);
-                if (first == run) await run;
+                if (first == run)
+                {
+                    await run;
+                    if (!token.IsCancellationRequested)
+                        throw new IOException("La session TCP s'est fermée avant l'ouverture des deux canaux.");
+                    return;
+                }
                 await ready;
                 _networkReady?.TrySetResult(true);
-                OnPropertyChanged(nameof(IsTransferReady));
-                OnPropertyChanged(nameof(TransferStatus));
-                RaiseCommands();
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    OnPropertyChanged(nameof(IsTransferReady));
+                    OnPropertyChanged(nameof(TransferStatus));
+                    RaiseCommands();
+                });
                 await run;
                 if (!token.IsCancellationRequested)
                     throw new IOException("La session TCP s'est fermée sans demande d'annulation.");
