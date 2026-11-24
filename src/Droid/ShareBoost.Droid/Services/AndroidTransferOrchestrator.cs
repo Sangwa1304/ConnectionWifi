@@ -57,16 +57,17 @@ public sealed class AndroidTransferOrchestrator : IDisposable
         ServerInstance.CounterChange += OnProgressChanged;
         ServerInstance.FilesComming += OnIncomingFiles;
         ServerInstance.FileTransferCompleted += OnFileTransferCompleted;
-        _serverTask = ServerInstance.StartConnection(sessionToken);
-        _isRunning = true;
 
         string remoteAddress = connection.RemoteIpAddress;
         if (string.IsNullOrWhiteSpace(remoteAddress))
         {
-            // If Android is the group owner, WifiP2pInfo does not expose the
-            // client's IP. Windows' client channel connects to this server;
-            // its accepted socket supplies the authoritative remote endpoint.
+            // Android as group owner: start the role-correct TCP listener first.
+            // The Windows peer connects to it and the accepted socket reveals
+            // the actual client IP without relying on private DHCP state.
             _acceptedPeerIp = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            _serverTask = ServerInstance.StartConnection(sessionToken);
+            _isRunning = true;
+
             Task endpointTask = _acceptedPeerIp.Task;
             Task firstServerEvent = await Task.WhenAny(endpointTask, _serverTask).ConfigureAwait(false);
             if (firstServerEvent == _serverTask)
@@ -84,13 +85,28 @@ public sealed class AndroidTransferOrchestrator : IDisposable
         ClientInstance.FilesComming += OnIncomingFiles;
         ClientInstance.FileTransferCompleted += OnFileTransferCompleted;
 
-        if (connection.ServerMode)
-            _clientTask = ClientInstance.StartConnection(sessionToken);
+        if (_serverTask is null)
+        {
+            // With a known endpoint, preserve Windows' role-dependent startup order.
+            if (connection.ServerMode)
+            {
+                _serverTask = ServerInstance.StartConnection(sessionToken);
+                _clientTask = ClientInstance.StartConnection(sessionToken);
+            }
+            else
+            {
+                _clientTask = ClientInstance.StartConnection(sessionToken);
+                _serverTask = ServerInstance.StartConnection(sessionToken);
+            }
+            _isRunning = true;
+        }
         else
+        {
             _clientTask = ClientInstance.StartConnection(sessionToken);
+        }
 
-        Task serverTask = _serverTask;
-        Task clientTask = _clientTask;
+        Task serverTask = _serverTask!;
+        Task clientTask = _clientTask!;
         Task first = await Task.WhenAny(serverTask, clientTask).ConfigureAwait(false);
         Exception? failure = null;
         try { await first.ConfigureAwait(false); }
