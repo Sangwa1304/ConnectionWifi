@@ -63,7 +63,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         DisconnectCommand = new AsyncCommand(_ => DisconnectAsync(), _ => IsConnected && !IsBusy);
         PickFilesCommand = new AsyncCommand(_ => PickFilesAsync(), _ => !IsBusy);
         RemoveFileCommand = new AsyncCommand(p => RemoveFileAsync(p as TransferFileItem), p => !IsBusy && p is TransferFileItem);
-        ClearFilesCommand = new AsyncCommand(_ => { SelectedFiles.Clear(); NotifyFilesChanged(); return Task.CompletedTask; }, _ => SelectedFiles.Count > 0 && !IsBusy);
+        ClearFilesCommand = new AsyncCommand(_ =>
+        {
+            foreach (var file in SelectedFiles.ToArray())
+                try { Directory.Delete(Path.GetDirectoryName(file.LocalPath)!, true); } catch (IOException) { }
+            SelectedFiles.Clear();
+            NotifyFilesChanged();
+            return Task.CompletedTask;
+        }, _ => SelectedFiles.Count > 0 && !IsBusy);
         // The send action is deliberately not wired to a placeholder: the current
         // Windows TCP framing is not yet a cross-platform, negotiated protocol.
         SendCommand = new AsyncCommand(_ => Task.CompletedTask, _ => false);
@@ -227,7 +234,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         var existing = Peers.FirstOrDefault(x => x.Address == peer.Address);
         if (existing is null) Peers.Add(peer);
-        else ReplacePeer(existing, peer);
+        else
+        {
+            var index = Peers.IndexOf(existing);
+            Peers[index] = peer;
+        }
     });
 
     private void Wifi_PeerUpdated(object? sender, AndroidWifiDirectPeer peer) => MainThread.BeginInvokeOnMainThread(() =>
@@ -254,12 +265,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     });
 
     private void Wifi_Error(object? sender, string message) => MainThread.BeginInvokeOnMainThread(() => Error = message);
-
-    private static void ReplacePeer(AndroidWifiDirectPeer oldPeer, AndroidWifiDirectPeer newPeer)
-    {
-        // The observable collection item is immutable; remove/add keeps UI state consistent.
-        // The collection is updated by caller through its owning VM.
-    }
 
     private void NotifyFilesChanged()
     {
