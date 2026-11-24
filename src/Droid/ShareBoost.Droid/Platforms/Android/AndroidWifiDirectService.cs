@@ -218,8 +218,10 @@ public sealed class AndroidWifiDirectService : IDisposable
     public void OpenWifiSettings()
     {
         ThrowIfDisposed();
-        var intent = new Intent(Android.Provider.Settings.Panel.ActionInternetConnectivity)
-            .AddFlags(ActivityFlags.NewTask);
+        var action = Build.VERSION.SdkInt >= BuildVersionCodes.Q
+            ? Android.Provider.Settings.Panel.ActionInternetConnectivity
+            : Android.Provider.Settings.ActionWifiSettings;
+        var intent = new Intent(action).AddFlags(ActivityFlags.NewTask);
         _context.StartActivity(intent);
     }
 
