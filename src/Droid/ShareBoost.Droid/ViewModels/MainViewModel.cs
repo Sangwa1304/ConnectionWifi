@@ -50,6 +50,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public bool IsBusy { get => _isBusy; private set { if (Set(ref _isBusy, value)) RaiseCommands(); } }
     public bool IsInitialized { get => _isInitialized; private set { if (Set(ref _isInitialized, value)) RaiseCommands(); } }
     public bool IsConnected => _wifi.CurrentStatus == WifiDirectStatus.Connected;
+    public bool IsPublishing => _wifi.PublisherStatus == WifiDirectPublicherStatus.Started;
     public bool IsTransferReady => _transfer.IsRunning;
     public string ConnectionRole => _connection is null ? "Aucune session" : _connection.ServerMode ? "Initiateur — canaux TCP actifs" : "Répondant — canaux TCP actifs";
     public string RemoteAddress => string.IsNullOrWhiteSpace(_connection?.RemoteIpAddress)
@@ -90,8 +91,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         OpenWifiSettingsCommand = new AsyncCommand(_ => { _androidNative.OpenWifiSettings(); return Task.CompletedTask; }, _ => !IsBusy);
         InitializeCommand = new AsyncCommand(_ => InitializeAsync(), _ => !IsBusy);
         DiscoverCommand = new AsyncCommand(_ => DiscoverAsync(), _ => IsInitialized && !IsBusy && !IsConnected);
-        PublishCommand = new AsyncCommand(_ => PublishAsync(), _ => IsInitialized && !IsBusy && !IsConnected);
-        ConnectCommand = new AsyncCommand(p => ConnectAsync(p as WifiDirectPeer), p => IsInitialized && !IsBusy && !IsConnected && p is WifiDirectPeer);
+        PublishCommand = new AsyncCommand(_ => PublishAsync(), _ => IsInitialized && !IsBusy && !IsPublishing && !IsConnected);
+        ConnectCommand = new AsyncCommand(p => ConnectAsync(p as WifiDirectPeer), p => IsInitialized && !IsBusy && !IsConnected && !IsPublishing && p is WifiDirectPeer);
         DisconnectCommand = new AsyncCommand(_ => DisconnectAsync(), _ => IsConnected && !IsBusy);
         PickFilesCommand = new AsyncCommand(_ => PickFilesAsync(), _ => !IsBusy && !_isTransferBusy);
         RemoveFileCommand = new AsyncCommand(p => RemoveFileAsync(p as TransferFileItem), p => !IsBusy && !_isTransferBusy && p is TransferFileItem);
@@ -407,7 +408,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         });
 
     private void Wifi_PublisherStatusChanged(object? sender, WifiDirectPublicherStatusEventArgs e) =>
-        MainThread.BeginInvokeOnMainThread(() => OnPropertyChanged(nameof(Status)));
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            OnPropertyChanged(nameof(Status));
+            OnPropertyChanged(nameof(IsPublishing));
+            RaiseCommands();
+        });
 
     private void Wifi_WatcherStatusChanged(object? sender, WifiDirectWatcherStatusEventArgs e) =>
         MainThread.BeginInvokeOnMainThread(() => OnPropertyChanged(nameof(Status)));
