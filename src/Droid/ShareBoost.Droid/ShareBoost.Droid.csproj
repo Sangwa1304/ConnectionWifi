@@ -60,6 +60,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\WifiDirect.Contracts\WifiDirect.Contracts.csproj" />
     <ProjectReference Include="..\..\ServiceTcpChared\ServiceTcpChared.csproj" />
-    <ProjectReference Include="..\..\LibraryModels\LibraryModels.csproj" />
+    <ProjectReference Include="..\..\LibraryModels\LibraryMI.csproj" />
   </ItemGroup>
 </Project>
