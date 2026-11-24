@@ -58,9 +58,9 @@ public sealed class AndroidWifiDirectService : IDisposable
         ThrowIfDisposed();
         cancellationToken.ThrowIfCancellationRequested();
 
-        var permission = await Permissions.CheckStatusAsync<WifiDirectPermission>();
+        var permission = await Permissions.CheckStatusAsync<Permissions.NearbyWifiDevices>();
         if (permission != PermissionStatus.Granted)
-            permission = await Permissions.RequestAsync<WifiDirectPermission>();
+            permission = await Permissions.RequestAsync<Permissions.NearbyWifiDevices>();
 
         if (permission != PermissionStatus.Granted)
         {
@@ -390,7 +390,7 @@ public sealed record AndroidWifiDirectConnection(bool IsGroupOwner, string Group
 
 
 /// <summary>Runtime permission required by Android's Wi-Fi Direct discovery APIs.</summary>
-public sealed class WifiDirectPermission : Permissions.BasePlatformPermission
+public sealed class Permissions.NearbyWifiDevices : Permissions.BasePlatformPermission
 {
     protected override string[] RequiredPermissions =>
         Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu
