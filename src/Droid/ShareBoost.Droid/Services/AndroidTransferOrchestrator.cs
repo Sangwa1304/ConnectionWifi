@@ -19,6 +19,7 @@ public sealed class AndroidTransferOrchestrator : IDisposable
     public event Func<InfoMetas, Task<bool>>? IncomingTransferRequested;
     public event Action? ProgressChanged;
     public event Action? FilesChanged;
+    public event Action<StreamingData.FileFinishe>? FileTransferCompleted;
 
     private Task? _serverTask;
     private Task? _clientTask;
@@ -55,6 +56,7 @@ public sealed class AndroidTransferOrchestrator : IDisposable
         ServerInstance.FileChange += OnFilesChanged;
         ServerInstance.CounterChange += OnProgressChanged;
         ServerInstance.FilesComming += OnIncomingFiles;
+        ServerInstance.FileTransferCompleted += OnFileTransferCompleted;
         _serverTask = ServerInstance.StartConnection(sessionToken);
         _isRunning = true;
 
@@ -80,6 +82,7 @@ public sealed class AndroidTransferOrchestrator : IDisposable
         ClientInstance.FileChange += OnFilesChanged;
         ClientInstance.CounterChange += OnProgressChanged;
         ClientInstance.FilesComming += OnIncomingFiles;
+        ClientInstance.FileTransferCompleted += OnFileTransferCompleted;
 
         if (connection.ServerMode)
             _clientTask = ClientInstance.StartConnection(sessionToken);
@@ -140,6 +143,7 @@ public sealed class AndroidTransferOrchestrator : IDisposable
 
     private void OnProgressChanged() => ProgressChanged?.Invoke();
     private void OnFilesChanged() => FilesChanged?.Invoke();
+    private void OnFileTransferCompleted(StreamingData.FileFinishe file) => FileTransferCompleted?.Invoke(file);
 
     public void Stop()
     {
