@@ -76,6 +76,8 @@ public sealed class AndroidWifiDirectService : IDisposable
             filter.AddAction(WifiP2pManager.WifiP2pConnectionChangedAction);
             filter.AddAction(WifiP2pManager.WifiP2pThisDeviceChangedAction);
             if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
+                filter.AddAction(WifiP2pManager.ActionWifiP2pRequestResponseChanged);
+            if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu)
                 _context.RegisterReceiver(_receiver, filter, ReceiverFlags.NotExported);
             else
 #pragma warning disable CA1422
@@ -278,6 +280,18 @@ public sealed class AndroidWifiDirectService : IDisposable
             RefreshPeers();
         else if (intent?.Action == WifiP2pManager.WifiP2pConnectionChangedAction)
             RefreshConnection();
+        else if (Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu &&
+                 intent?.Action == WifiP2pManager.ActionWifiP2pRequestResponseChanged)
+        {
+            var accepted = intent.GetBooleanExtra(WifiP2pManager.ExtraRequestResponse, false);
+            if (!accepted)
+            {
+                lock (_sync)
+                    _connectionRequest?.TrySetException(
+                        new InvalidOperationException("La demande Wi-Fi Direct a été refusée par l'autre appareil."));
+                SetStatus(AndroidWifiDirectStatus.Disconnected);
+            }
+        }
         else if (intent?.Action == WifiP2pManager.WifiP2pStateChangedAction)
         {
             var enabled = intent.GetIntExtra(WifiP2pManager.ExtraWifiState, -1)
