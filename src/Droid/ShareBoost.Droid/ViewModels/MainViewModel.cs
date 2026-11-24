@@ -9,7 +9,6 @@ using LibraryMI.Models;
 using ServiceTcpChared;
 using ShareBoost.Droid.Infrastructure;
 using ShareBoost.Droid.Models;
-using ShareBoost.Droid.Platforms.Android;
 using ShareBoost.Droid.Services;
 using WindowsWifiLibrary.Interfaces;
 using WindowsWifiLibrary.Models;
@@ -225,7 +224,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 var directory = Path.Combine(FileSystem.CacheDirectory, "outgoing", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(directory);
-                var safeName = Path.GetFileName(file.FileName);
+                var safeName = Path.GetFileName(file?.FileName);
                 if (string.IsNullOrWhiteSpace(safeName)) safeName = "fichier";
                 var localPath = Path.Combine(directory, safeName);
                 await using (var input = await file.OpenReadAsync())
@@ -585,11 +584,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(CanSend));
     }
 
-    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    private bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;
         OnPropertyChanged(name);
+        return true;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

@@ -23,7 +23,7 @@ public partial class MainPage : ContentPage
         var size = FormatSize(request.Length);
         try
         {
-            return await MainThread.InvokeOnMainThreadAsync(() => DisplayAlert(
+            return await MainThread.InvokeOnMainThreadAsync(() => DisplayAlertAsync(
                 "Réception de fichiers",
                 $"Un appareil souhaite envoyer {request.Metas.Length} fichier(s) ({size}) :\n\n{names}\n\nAutoriser la réception ?",
                 "Accepter",

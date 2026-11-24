@@ -7,8 +7,9 @@ using Android.Runtime;
 using Microsoft.Maui.ApplicationModel;
 using WindowsWifiLibrary.Interfaces;
 using WindowsWifiLibrary.Models;
+using OperationCanceledException = System.OperationCanceledException;
 
-namespace ShareBoost.Droid.Platforms.Android;
+namespace ShareBoost.Droid.Services;
 
 /// <summary>
 /// Android implementation of the exact platform-neutral Wi-Fi Direct contract

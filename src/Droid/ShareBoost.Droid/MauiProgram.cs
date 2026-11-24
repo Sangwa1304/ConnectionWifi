@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using ShareBoost.Droid.Platforms.Android;
+using ShareBoost.Droid.Services;
 using ShareBoost.Droid.ViewModels;
 using WindowsWifiLibrary.Interfaces;
 
