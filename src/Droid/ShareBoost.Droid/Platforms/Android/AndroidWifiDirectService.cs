@@ -185,7 +185,7 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
 
             using var registration = token.Register(() => request.TrySetCanceled(token));
             var established = await request.Task.WaitAsync(TimeSpan.FromSeconds(60), token).ConfigureAwait(false);
-            return established.ServerMode;
+            return true;
         }
         catch (TimeoutException)
         {
