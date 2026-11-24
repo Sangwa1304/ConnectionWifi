@@ -50,10 +50,8 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
 
     public AndroidWifiDirectService()
     {
-        _manager = (WifiP2pManager?)_context.GetSystemService(Context.WifiP2pService)
-            ?? throw new NotSupportedException("Le service Wi-Fi Direct n'est pas disponible sur cet appareil.");
-        _channel = _manager.Initialize(_context, Looper.MainLooper, null)
-            ?? throw new InvalidOperationException("Impossible d'initialiser le canal Wi-Fi Direct.");
+        _manager = (WifiP2pManager?)_context.GetSystemService(Context.WifiP2pService)!;
+        _channel = _manager?.Initialize(_context, Looper.MainLooper, null)!;
         _receiver = new P2pReceiver(this);
     }
 
@@ -61,6 +59,13 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
     {
         ThrowIfDisposed();
         token.ThrowIfCancellationRequested();
+
+        if (_manager is null || _channel is null)
+        {
+            SetStatus(WifiDirectStatus.NoArdwareSupported);
+            ReportError("Cet appareil ne fournit pas le service Wi-Fi Direct Android.");
+            return false;
+        }
 
         var wifiManager = (WifiManager?)_context.GetSystemService(Context.WifiService);
         if (wifiManager is null || !wifiManager.IsWifiEnabled)
@@ -284,8 +289,11 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
     public void Stop()
     {
         if (_disposed) return;
-        _manager.StopPeerDiscovery(_channel, new ActionListener(() => { }, _ => { }));
-        _manager.RemoveGroup(_channel, new ActionListener(() => { }, _ => { }));
+        if (_manager is not null && _channel is not null)
+        {
+            _manager.StopPeerDiscovery(_channel, new ActionListener(() => { }, _ => { }));
+            _manager.RemoveGroup(_channel, new ActionListener(() => { }, _ => { }));
+        }
         SetWatcherStatus(WifiDirectWatcherStatus.Closed);
         SetPublisherStatus(WifiDirectPublicherStatus.Closed);
         SetStatus(WifiDirectStatus.Closed);
