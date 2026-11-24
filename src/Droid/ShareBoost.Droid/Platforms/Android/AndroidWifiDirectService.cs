@@ -116,10 +116,20 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
         return true;
     }
 
-    public Task StartPublishingAsync(CancellationToken token)
+    public async Task StartPublishingAsync(CancellationToken token)
     {
         ThrowIfDisposed();
         token.ThrowIfCancellationRequested();
+
+        // Android cannot keep discovery and an active P2P group in parallel.
+        // Stop discovery before creating the group-owner group.
+        var discoveryStopped = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _manager.StopPeerDiscovery(_channel, new ActionListener(
+            () => discoveryStopped.TrySetResult(true),
+            _ => discoveryStopped.TrySetResult(true)));
+        await discoveryStopped.Task.WaitAsync(token).ConfigureAwait(false);
+        SetWatcherStatus(WifiDirectWatcherStatus.Closed);
+
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _manager.CreateGroup(_channel, new ActionListener(
             () =>
@@ -132,13 +142,23 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                 ReportError($"Impossible de publier le service Wi-Fi Direct : {reason}.");
                 completion.TrySetResult(false);
             }));
-        return AwaitActionAsync(completion.Task, token);
+        await AwaitActionAsync(completion.Task, token).ConfigureAwait(false);
     }
 
-    public Task StartSubscribingAsync(CancellationToken token)
+    public async Task StartSubscribingAsync(CancellationToken token)
     {
         ThrowIfDisposed();
         token.ThrowIfCancellationRequested();
+
+        // Switching to discovery removes the app-owned group first.
+        var groupRemoved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _manager.RemoveGroup(_channel, new ActionListener(
+            () => groupRemoved.TrySetResult(true),
+            _ => groupRemoved.TrySetResult(true)));
+        await groupRemoved.Task.WaitAsync(token).ConfigureAwait(false);
+        SetPublisherStatus(WifiDirectPublicherStatus.Closed);
+        SetStatus(WifiDirectStatus.Disconnected);
+
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _manager.DiscoverPeers(_channel, new ActionListener(
             () =>
@@ -152,16 +172,18 @@ public sealed class AndroidWifiDirectService : IWifiDirectService
                 ReportError($"Échec de la découverte Wi-Fi Direct : {reason}.");
                 completion.TrySetResult(false);
             }));
-        return AwaitActionAsync(completion.Task, token);
+        await AwaitActionAsync(completion.Task, token).ConfigureAwait(false);
     }
 
     public async Task StartPublisherSubscribingAsync(CancellationToken token)
     {
         ThrowIfDisposed();
         token.ThrowIfCancellationRequested();
+        // Android's public P2P API serializes these modes: scan first, then
+        // publish a group. The Windows API can keep its advertisement/watcher
+        // alive concurrently; Android cannot.
+        await StartSubscribingAsync(token).ConfigureAwait(false);
         await StartPublishingAsync(token).ConfigureAwait(false);
-        if (!token.IsCancellationRequested)
-            await StartSubscribingAsync(token).ConfigureAwait(false);
     }
 
     public async Task<bool> ConnectToPeerAsync(WifiDirectPeer peer, CancellationToken token)
