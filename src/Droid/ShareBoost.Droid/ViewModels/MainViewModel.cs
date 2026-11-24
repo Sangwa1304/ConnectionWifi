@@ -2,52 +2,64 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using LibraryMI.Models;
+using ServiceTcpChared;
 using ShareBoost.Droid.Infrastructure;
 using ShareBoost.Droid.Models;
 using ShareBoost.Droid.Platforms.Android;
+using ShareBoost.Droid.Services;
+using WindowsWifiLibrary.Interfaces;
+using WindowsWifiLibrary.Models;
 
 namespace ShareBoost.Droid.ViewModels;
 
 public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 {
-    private readonly AndroidWifiDirectService _wifi;
+    private readonly IWifiDirectService _wifi;
+    private readonly AndroidWifiDirectService _androidNative;
+    private readonly AndroidTransferOrchestrator _transfer = new();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private CancellationTokenSource? _operation;
-    private AndroidWifiDirectPeer? _selectedPeer;
-    private AndroidWifiDirectConnection? _connection;
+    private CancellationTokenSource? _networkSession;
+    private CancellationTokenSource? _transferCancellation;
+    private TaskCompletionSource<bool>? _networkReady;
+    private WifiDirectPeer? _selectedPeer;
+    private WifiDirectConnectionEventArgs? _connection;
     private string _status = "Initialisation requise";
-    private string _message = "Activez le Wi-Fi, puis lancez la recherche d'appareils.";
+    private string _message = "Initialisez le Wi-Fi Direct pour commencer.";
     private string _error = string.Empty;
     private bool _isBusy;
     private bool _isInitialized;
+    private bool _isTransferBusy;
     private double _transferProgress;
     private bool _disposed;
 
-    public ObservableCollection<AndroidWifiDirectPeer> Peers { get; } = [];
+    public ObservableCollection<WifiDirectPeer> Peers { get; } = [];
     public ObservableCollection<TransferFileItem> SelectedFiles { get; } = [];
+    public ObservableCollection<TransferHistoryEntry> RecentTransfers { get; } = [];
 
     public string Status { get => _status; private set => Set(ref _status, value); }
     public string Message { get => _message; private set => Set(ref _message, value); }
     public string Error
     {
         get => _error;
-        private set
-        {
-            if (Set(ref _error, value))
-                OnPropertyChanged(nameof(HasError));
-        }
+        private set { if (Set(ref _error, value)) OnPropertyChanged(nameof(HasError)); }
     }
     public bool HasError => !string.IsNullOrWhiteSpace(Error);
     public bool IsBusy { get => _isBusy; private set { if (Set(ref _isBusy, value)) RaiseCommands(); } }
     public bool IsInitialized { get => _isInitialized; private set { if (Set(ref _isInitialized, value)) RaiseCommands(); } }
-    public bool IsConnected => _connection?.GroupFormed == true;
-    public string ConnectionRole => _connection is null ? "Aucune session" : _connection.IsGroupOwner ? "Hôte du groupe Wi-Fi Direct" : "Client Wi-Fi Direct";
-    public string GroupOwnerAddress => _connection?.GroupOwnerAddress ?? "Adresse réseau non communiquée";
+    public bool IsConnected => _wifi.CurrentStatus == WifiDirectStatus.Connected;
+    public bool IsTransferReady => _transfer.IsRunning;
+    public string ConnectionRole => _connection is null ? "Aucune session" : _connection.ServerMode ? "Initiateur — canaux TCP actifs" : "Répondant — canaux TCP actifs";
+    public string RemoteAddress => _connection?.RemoteIpAddress ?? "Adresse distante non résolue";
     public string SelectedPeerName => _selectedPeer?.Name ?? "Aucun appareil sélectionné";
     public bool HasSelectedFiles => SelectedFiles.Count > 0;
     public string SelectedFilesSummary => $"{SelectedFiles.Count} fichier(s) · {FormatSize(SelectedFiles.Sum(x => x.Length))}";
-    public double TransferProgress { get => _transferProgress; private set => Set(ref _transferProgress, value); }
-    public bool CanSend => IsConnected && HasSelectedFiles && !IsBusy;
+    public double TransferProgress { get => _transferProgress; private set => Set(ref _transferProgress, Math.Clamp(value, 0, 1)); }
+    public string TransferStatus => _transfer.IsRunning
+        ? $"Envoi : {_transfer.SendDescription} · Réception : {_transfer.ReceiveDescription}"
+        : "Canaux TCP en attente";
+    public bool CanSend => IsConnected && IsTransferReady && HasSelectedFiles && !_isTransferBusy && !IsBusy;
 
     public ICommand OpenWifiSettingsCommand { get; }
     public ICommand InitializeCommand { get; }
@@ -59,49 +71,60 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand RemoveFileCommand { get; }
     public ICommand ClearFilesCommand { get; }
     public ICommand SendCommand { get; }
+    public ICommand CancelTransferCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event Func<InfoMetas, Task<bool>>? IncomingTransferRequested;
 
-    public MainViewModel(AndroidWifiDirectService wifi)
+    public MainViewModel(IWifiDirectService wifi, AndroidWifiDirectService androidNative)
     {
         _wifi = wifi;
-        OpenWifiSettingsCommand = new AsyncCommand(_ => { _wifi.OpenWifiSettings(); return Task.CompletedTask; }, _ => !IsBusy);
+        _androidNative = androidNative;
+        OpenWifiSettingsCommand = new AsyncCommand(_ => { _androidNative.OpenWifiSettings(); return Task.CompletedTask; }, _ => !IsBusy);
         InitializeCommand = new AsyncCommand(_ => InitializeAsync(), _ => !IsInitialized && !IsBusy);
         DiscoverCommand = new AsyncCommand(_ => DiscoverAsync(), _ => IsInitialized && !IsBusy);
         PublishCommand = new AsyncCommand(_ => PublishAsync(), _ => IsInitialized && !IsBusy);
-        ConnectCommand = new AsyncCommand(p => ConnectAsync(p as AndroidWifiDirectPeer), p => IsInitialized && !IsBusy && p is AndroidWifiDirectPeer);
+        ConnectCommand = new AsyncCommand(p => ConnectAsync(p as WifiDirectPeer), p => IsInitialized && !IsBusy && p is WifiDirectPeer);
         DisconnectCommand = new AsyncCommand(_ => DisconnectAsync(), _ => IsConnected && !IsBusy);
-        PickFilesCommand = new AsyncCommand(_ => PickFilesAsync(), _ => !IsBusy);
-        RemoveFileCommand = new AsyncCommand(p => RemoveFileAsync(p as TransferFileItem), p => !IsBusy && p is TransferFileItem);
-        ClearFilesCommand = new AsyncCommand(_ =>
-        {
-            foreach (var file in SelectedFiles.ToArray())
-                try { Directory.Delete(Path.GetDirectoryName(file.LocalPath)!, true); } catch (IOException) { }
-            SelectedFiles.Clear();
-            NotifyFilesChanged();
-            return Task.CompletedTask;
-        }, _ => SelectedFiles.Count > 0 && !IsBusy);
-        // The send action is deliberately not wired to a placeholder: the current
-        // Windows TCP framing is not yet a cross-platform, negotiated protocol.
-        SendCommand = new AsyncCommand(_ => Task.CompletedTask, _ => false);
+        PickFilesCommand = new AsyncCommand(_ => PickFilesAsync(), _ => !IsBusy && !_isTransferBusy);
+        RemoveFileCommand = new AsyncCommand(p => RemoveFileAsync(p as TransferFileItem), p => !IsBusy && !_isTransferBusy && p is TransferFileItem);
+        ClearFilesCommand = new AsyncCommand(_ => ClearFilesAsync(), _ => SelectedFiles.Count > 0 && !IsBusy && !_isTransferBusy);
+        SendCommand = new AsyncCommand(_ => SendAsync(), _ => CanSend);
+        CancelTransferCommand = new AsyncCommand(_ => CancelTransferAsync(), _ => _isTransferBusy);
 
         _wifi.StatusChanged += Wifi_StatusChanged;
+        _wifi.PublicherStatusChanged += Wifi_PublisherStatusChanged;
+        _wifi.WatcherStatusChanged += Wifi_WatcherStatusChanged;
         _wifi.PeerDiscovered += Wifi_PeerDiscovered;
         _wifi.PeerUpdated += Wifi_PeerUpdated;
         _wifi.PeerRemoved += Wifi_PeerRemoved;
         _wifi.ConnectionEstablished += Wifi_ConnectionEstablished;
+        _wifi.ConnectionClosed += Wifi_ConnectionClosed;
         _wifi.Error += Wifi_Error;
+        _transfer.IncomingTransferRequested += Transfer_IncomingTransferRequested;
+        _transfer.ProgressChanged += Transfer_ProgressChanged;
+        _transfer.FilesChanged += Transfer_FilesChanged;
+        SelectedFiles.CollectionChanged += (_, _) => NotifyFilesChanged();
+        RecentTransfers.CollectionChanged += (_, _) => OnPropertyChanged(nameof(RecentTransfers));
     }
 
     private async Task InitializeAsync()
     {
         await RunExclusiveAsync(async token =>
         {
-            Error = string.Empty;
-            Message = "Vérification des autorisations Android…";
+            Message = "Vérification des permissions et du service Wi-Fi Direct Android…";
             IsInitialized = await _wifi.InitializeAsync(token);
-            Status = IsInitialized ? "Wi-Fi Direct prêt" : "Autorisation ou service indisponible";
-            Message = IsInitialized ? "Vous pouvez rechercher un appareil ou publier ce téléphone." : "Vérifiez les autorisations Wi-Fi à proximité dans les paramètres Android.";
+            if (!IsInitialized)
+            {
+                Status = "Wi-Fi Direct indisponible";
+                return;
+            }
+            Status = "Wi-Fi Direct prêt";
+            Message = "Le service est prêt. Lancez une recherche ou publiez ce téléphone.";
+            // Windows runs publisher and watcher together. Android's P2P API has
+            // mutually exclusive discovery/group-owner operating states; retain
+            // the same public contract while starting peer discovery here.
+            await _wifi.StartSubscribingAsync(token);
         });
     }
 
@@ -109,48 +132,69 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         Error = string.Empty;
         Message = "Recherche des appareils Wi-Fi Direct…";
-        bool started = await _wifi.StartSubscribingAsync(token);
-        if (started) Message = "Recherche lancée. Les appareils compatibles apparaîtront ici.";
+        await _wifi.StartSubscribingAsync(token);
+        Message = "Recherche lancée. Les appareils détectés apparaîtront ici.";
     });
 
     private Task PublishAsync() => RunExclusiveAsync(async token =>
     {
         Error = string.Empty;
-        Message = "Publication du groupe Wi-Fi Direct…";
-        bool started = await _wifi.StartPublishingAsync(token);
-        if (started) Message = "Ce téléphone est disponible comme hôte. Les demandes entrantes restent soumises à la confirmation Android.";
+        Message = "Création du groupe Wi-Fi Direct…";
+        await _wifi.StartPublishingAsync(token);
+        Message = "Ce téléphone est publié comme propriétaire du groupe. Les négociations entrantes restent contrôlées par Android.";
     });
 
-    private Task ConnectAsync(AndroidWifiDirectPeer? peer) => RunExclusiveAsync(async token =>
+    private async Task ConnectAsync(WifiDirectPeer? peer)
     {
-        if (peer is null) return;
+        if (peer is null || _disposed) return;
+        if (!await _operationGate.WaitAsync(0)) return;
+        _operation = new CancellationTokenSource();
+        IsBusy = true;
         Error = string.Empty;
         _selectedPeer = peer;
         OnPropertyChanged(nameof(SelectedPeerName));
-        Message = $"Demande de connexion à {peer.Name}. Confirmez la demande dans l'interface système Android si elle apparaît.";
-        var connection = await _wifi.ConnectToPeerAsync(peer, token);
-        if (connection?.GroupFormed == true)
+        _networkReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
         {
-            _connection = connection;
-            OnPropertyChanged(nameof(IsConnected));
-            OnPropertyChanged(nameof(ConnectionRole));
-            OnPropertyChanged(nameof(GroupOwnerAddress));
-            Message = "Groupe Wi-Fi Direct établi. Le canal de transfert de fichiers n'est pas encore négocié avec le protocole Windows.";
+            Message = $"Demande de connexion à {peer.Name}…";
+            bool connected = await _wifi.ConnectToPeerAsync(peer, _operation.Token);
+            if (!connected)
+            {
+                Message = "La connexion Wi-Fi Direct n'a pas abouti.";
+                return;
+            }
+            Message = "Groupe Wi-Fi Direct établi. Négociation des deux canaux TCP…";
+            await _networkReady.Task.WaitAsync(TimeSpan.FromSeconds(75), _operation.Token);
+            Message = "Connexion et canaux TCP établis. Vous pouvez envoyer ou recevoir des fichiers.";
         }
-        else Message = "La connexion n'a pas été établie.";
-        RaiseCommands();
-    });
+        catch (OperationCanceledException) { Message = "Connexion annulée."; }
+        catch (Exception ex) { Error = ex.Message; Message = "La connexion ou l'initialisation TCP a échoué."; }
+        finally
+        {
+            _operation.Dispose();
+            _operation = null;
+            IsBusy = false;
+            _operationGate.Release();
+            RaiseCommands();
+        }
+    }
 
-    private Task DisconnectAsync() => RunExclusiveAsync(async _ =>
+    private async Task DisconnectAsync()
     {
-        await _wifi.DisconnectAsync();
+        WifiDirectPeer? peer = _selectedPeer;
+        _networkSession?.Cancel();
+        _transfer.Stop();
+        _wifi.DisconnectToPeer(ref peer, CancellationToken.None);
+        _selectedPeer = null;
         _connection = null;
+        OnPropertyChanged(nameof(SelectedPeerName));
         OnPropertyChanged(nameof(IsConnected));
         OnPropertyChanged(nameof(ConnectionRole));
-        OnPropertyChanged(nameof(GroupOwnerAddress));
-        Message = "Session Wi-Fi Direct terminée.";
+        OnPropertyChanged(nameof(RemoteAddress));
+        Message = "Session Wi-Fi Direct et canaux TCP arrêtés.";
         RaiseCommands();
-    });
+        await Task.CompletedTask;
+    }
 
     private async Task PickFilesAsync()
     {
@@ -164,19 +208,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
             foreach (var file in files)
             {
-                await using var input = await file.OpenReadAsync();
                 var directory = Path.Combine(FileSystem.CacheDirectory, "outgoing", Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(directory);
                 var safeName = Path.GetFileName(file.FileName);
                 if (string.IsNullOrWhiteSpace(safeName)) safeName = "fichier";
                 var localPath = Path.Combine(directory, safeName);
+                await using (var input = await file.OpenReadAsync())
                 await using (var output = File.Create(localPath))
                     await input.CopyToAsync(output);
 
                 var info = new FileInfo(localPath);
-                ImageSource? thumbnail = null;
-                string extension = info.Extension.ToLowerInvariant();
-                string kind = extension switch
+                string ext = info.Extension.ToLowerInvariant();
+                string kind = ext switch
                 {
                     ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".bmp" or ".heic" => "Image",
                     ".mp4" or ".mov" or ".mkv" or ".webm" => "Vidéo",
@@ -184,27 +227,70 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                     ".pdf" => "PDF",
                     _ => "Fichier"
                 };
-                if (kind == "Image")
-                    thumbnail = ImageSource.FromFile(localPath);
-
-                if (SelectedFiles.All(x => !string.Equals(x.LocalPath, localPath, StringComparison.OrdinalIgnoreCase)))
-                    SelectedFiles.Add(new TransferFileItem(safeName, localPath, info.Length, thumbnail, kind));
+                ImageSource? thumbnail = kind == "Image" ? ImageSource.FromFile(localPath) : null;
+                SelectedFiles.Add(new TransferFileItem(safeName, localPath, info.Length, thumbnail, kind));
             }
-
-            NotifyFilesChanged();
-            Message = SelectedFiles.Count == 0 ? "Aucun fichier sélectionné." : "Fichiers prêts dans la file d'envoi.";
+            Message = $"{SelectedFiles.Count} fichier(s) prêt(s) à l'envoi.";
         }
         catch (Exception ex) { Error = $"Sélection de fichiers impossible : {ex.Message}"; }
     }
 
     private Task RemoveFileAsync(TransferFileItem? item)
     {
-        if (item is not null)
+        if (item is null) return Task.CompletedTask;
+        SelectedFiles.Remove(item);
+        DeleteStagedFile(item);
+        return Task.CompletedTask;
+    }
+
+    private Task ClearFilesAsync()
+    {
+        foreach (var item in SelectedFiles.ToArray()) DeleteStagedFile(item);
+        SelectedFiles.Clear();
+        return Task.CompletedTask;
+    }
+
+    private static void DeleteStagedFile(TransferFileItem item)
+    {
+        try { Directory.Delete(Path.GetDirectoryName(item.LocalPath)!, true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private async Task SendAsync()
+    {
+        if (!_transfer.IsRunning || SelectedFiles.Count == 0) return;
+        if (!await _operationGate.WaitAsync(0)) return;
+        _isTransferBusy = true;
+        _transferCancellation?.Cancel();
+        _transferCancellation?.Dispose();
+        _transferCancellation = new CancellationTokenSource();
+        RaiseCommands();
+        try
         {
-            SelectedFiles.Remove(item);
-            try { Directory.Delete(Path.GetDirectoryName(item.LocalPath)!, true); } catch (IOException) { }
-            NotifyFilesChanged();
+            var files = SelectedFiles.Select(f => new FileI(f.LocalPath)).ToArray();
+            bool accepted = await _transfer.SendFilesAsync(files, _transferCancellation.Token);
+            Message = accepted ? "Transfert terminé." : "Le destinataire a refusé le transfert.";
+            if (accepted)
+            {
+                foreach (var file in SelectedFiles)
+                    RecentTransfers.Insert(0, new TransferHistoryEntry { Name = file.Name, Type = "Envoi", Status = "Terminé", Path = file.LocalPath, Size = file.Length });
+            }
         }
+        catch (OperationCanceledException) { Message = "Transfert annulé."; }
+        catch (Exception ex) { Error = $"Impossible de démarrer le transfert : {ex.Message}"; }
+        finally
+        {
+            _isTransferBusy = false;
+            _operationGate.Release();
+            RaiseCommands();
+        }
+    }
+
+    private Task CancelTransferAsync()
+    {
+        _transferCancellation?.Cancel();
+        Message = "Annulation du transfert demandée.";
         return Task.CompletedTask;
     }
 
@@ -227,54 +313,140 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private void Wifi_StatusChanged(object? sender, AndroidWifiDirectStatus status)
+    private void Wifi_StatusChanged(object? sender, WifiDirectStatusEventArgs e) =>
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            Status = e.Status switch
+            {
+                WifiDirectStatus.Connected => "Connecté",
+                WifiDirectStatus.Disconnected => "Déconnecté",
+                WifiDirectStatus.Aborded => "Connexion interrompue",
+                WifiDirectStatus.NoArdwareSupported => "Matériel non pris en charge",
+                _ => "Initialisation"
+            };
+            OnPropertyChanged(nameof(IsConnected));
+            RaiseCommands();
+        });
+
+    private void Wifi_PublisherStatusChanged(object? sender, WifiDirectPublicherStatusEventArgs e) =>
+        MainThread.BeginInvokeOnMainThread(() => OnPropertyChanged(nameof(Status)));
+
+    private void Wifi_WatcherStatusChanged(object? sender, WifiDirectWatcherStatusEventArgs e) =>
+        MainThread.BeginInvokeOnMainThread(() => OnPropertyChanged(nameof(Status)));
+
+    private void Wifi_PeerDiscovered(object? sender, WifiDirectPeerEventArgs e) =>
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (!Peers.Contains(e.Peer)) Peers.Add(e.Peer);
+        });
+
+    private void Wifi_PeerUpdated(object? sender, WifiDirectPeerEventArgs e) =>
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var old = Peers.FirstOrDefault(p => p.Id == e.Peer.Id);
+            if (old is null) Peers.Add(e.Peer);
+            else Peers[Peers.IndexOf(old)] = e.Peer;
+        });
+
+    private void Wifi_PeerRemoved(object? sender, WifiDirectPeerEventArgs e) =>
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            var old = Peers.FirstOrDefault(p => p.Id == e.Peer.Id);
+            if (old is not null) Peers.Remove(old);
+        });
+
+    private void Wifi_ConnectionEstablished(object? sender, WifiDirectConnectionEventArgs e)
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            Status = status.ToString();
-            if (status != AndroidWifiDirectStatus.Connected) _connection = null;
-            OnPropertyChanged(nameof(IsConnected));
+            _connection = e;
             OnPropertyChanged(nameof(ConnectionRole));
-            OnPropertyChanged(nameof(GroupOwnerAddress));
+            OnPropertyChanged(nameof(RemoteAddress));
+            Message = "Wi-Fi Direct établi. Initialisation du transport TCP Windows-compatible…";
+            RaiseCommands();
+        });
+        _ = StartNetworkSessionAsync(e);
+    }
+
+    private async Task StartNetworkSessionAsync(WifiDirectConnectionEventArgs connection)
+    {
+        if (_disposed) return;
+        _networkSession?.Cancel();
+        _networkSession?.Dispose();
+        _networkSession = new CancellationTokenSource();
+        var token = _networkSession.Token;
+        Exception? lastFailure = null;
+
+        for (int attempt = 1; attempt <= 4 && !token.IsCancellationRequested; attempt++)
+        {
+            try
+            {
+                Message = attempt == 1 ? "Ouverture des deux canaux TCP…" : $"Rétablissement des canaux TCP ({attempt}/4)…";
+                var run = _transfer.StartAsync(connection, token);
+                await _transfer.WaitUntilReadyAsync(token);
+                _networkReady?.TrySetResult(true);
+                OnPropertyChanged(nameof(IsTransferReady));
+                OnPropertyChanged(nameof(TransferStatus));
+                RaiseCommands();
+                await run;
+                if (!token.IsCancellationRequested)
+                    throw new IOException("La session TCP s'est fermée sans demande d'annulation.");
+                return;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+            catch (Exception ex)
+            {
+                lastFailure = ex;
+                if (attempt < 4 && !token.IsCancellationRequested)
+                    await Task.Delay(TimeSpan.FromSeconds(attempt * 2), token);
+            }
+        }
+
+        if (lastFailure is not null)
+        {
+            _networkReady?.TrySetException(lastFailure);
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                Error = $"Les canaux TCP n'ont pas pu être établis : {lastFailure.Message}";
+                OnPropertyChanged(nameof(IsTransferReady));
+                RaiseCommands();
+            });
+        }
+    }
+
+    private Task<bool> Transfer_IncomingTransferRequested(InfoMetas metadata)
+    {
+        if (_disposed || IncomingTransferRequested is null)
+            return Task.FromResult(false);
+        return IncomingTransferRequested.Invoke(metadata);
+    }
+
+    private void Wifi_ConnectionClosed(object? sender, WifiDirectPeerEventArgs e)
+    {
+        _networkSession?.Cancel();
+        _transfer.Stop();
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            _connection = null;
+            Message = $"Connexion fermée : {e.Peer.Name}.";
+            OnPropertyChanged(nameof(IsConnected));
+            OnPropertyChanged(nameof(IsTransferReady));
+            OnPropertyChanged(nameof(ConnectionRole));
             RaiseCommands();
         });
     }
 
-    private void Wifi_PeerDiscovered(object? sender, AndroidWifiDirectPeer peer) => MainThread.BeginInvokeOnMainThread(() =>
+    private void Wifi_Error(object? sender, WifiDirectErrorEventArgs e) =>
+        MainThread.BeginInvokeOnMainThread(() => Error = string.IsNullOrWhiteSpace(e.message) ? e.Error?.Message ?? "Erreur Wi-Fi Direct." : e.message);
+
+    private void Transfer_ProgressChanged() => MainThread.BeginInvokeOnMainThread(() =>
     {
-        var existing = Peers.FirstOrDefault(x => x.Address == peer.Address);
-        if (existing is null) Peers.Add(peer);
-        else
-        {
-            var index = Peers.IndexOf(existing);
-            Peers[index] = peer;
-        }
+        TransferProgress = Math.Max(_transfer.SendProgress, _transfer.ReceiveProgress) / 100d;
+        OnPropertyChanged(nameof(TransferStatus));
     });
 
-    private void Wifi_PeerUpdated(object? sender, AndroidWifiDirectPeer peer) => MainThread.BeginInvokeOnMainThread(() =>
-    {
-        var existing = Peers.FirstOrDefault(x => x.Address == peer.Address);
-        if (existing is null) Peers.Add(peer);
-        else ReplacePeer(existing, peer);
-    });
-
-    private void Wifi_PeerRemoved(object? sender, AndroidWifiDirectPeer peer) => MainThread.BeginInvokeOnMainThread(() =>
-    {
-        var existing = Peers.FirstOrDefault(x => x.Address == peer.Address);
-        if (existing is not null) Peers.Remove(existing);
-    });
-
-    private void Wifi_ConnectionEstablished(object? sender, AndroidWifiDirectConnection connection) => MainThread.BeginInvokeOnMainThread(() =>
-    {
-        _connection = connection;
-        OnPropertyChanged(nameof(IsConnected));
-        OnPropertyChanged(nameof(ConnectionRole));
-        OnPropertyChanged(nameof(GroupOwnerAddress));
-        Message = "Connexion Wi-Fi Direct confirmée.";
-        RaiseCommands();
-    });
-
-    private void Wifi_Error(object? sender, string message) => MainThread.BeginInvokeOnMainThread(() => Error = message);
+    private void Transfer_FilesChanged() => MainThread.BeginInvokeOnMainThread(() =>
+        OnPropertyChanged(nameof(TransferStatus)));
 
     private void NotifyFilesChanged()
     {
@@ -286,7 +458,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void RaiseCommands()
     {
-        foreach (var command in new[] { OpenWifiSettingsCommand, InitializeCommand, DiscoverCommand, PublishCommand, ConnectCommand, DisconnectCommand, PickFilesCommand, RemoveFileCommand, ClearFilesCommand, SendCommand })
+        foreach (var command in new[] { OpenWifiSettingsCommand, InitializeCommand, DiscoverCommand, PublishCommand, ConnectCommand, DisconnectCommand, PickFilesCommand, RemoveFileCommand, ClearFilesCommand, SendCommand, CancelTransferCommand })
             (command as AsyncCommand)?.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanSend));
     }
@@ -298,7 +470,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(name);
     }
 
-    private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     private static string FormatSize(long bytes)
     {
@@ -313,12 +486,22 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         if (_disposed) return;
         _disposed = true;
         _operation?.Cancel();
+        _networkSession?.Cancel();
+        _transferCancellation?.Cancel();
+        _transfer.Dispose();
         _wifi.StatusChanged -= Wifi_StatusChanged;
+        _wifi.PublicherStatusChanged -= Wifi_PublisherStatusChanged;
+        _wifi.WatcherStatusChanged -= Wifi_WatcherStatusChanged;
         _wifi.PeerDiscovered -= Wifi_PeerDiscovered;
         _wifi.PeerUpdated -= Wifi_PeerUpdated;
         _wifi.PeerRemoved -= Wifi_PeerRemoved;
         _wifi.ConnectionEstablished -= Wifi_ConnectionEstablished;
+        _wifi.ConnectionClosed -= Wifi_ConnectionClosed;
         _wifi.Error -= Wifi_Error;
+        _wifi.Dispose();
+        _operation?.Dispose();
+        _networkSession?.Dispose();
+        _transferCancellation?.Dispose();
         _operationGate.Dispose();
     }
 }
