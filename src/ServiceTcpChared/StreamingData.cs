@@ -60,7 +60,7 @@ public class StreamingData
 
     private string _fileReceivedOrSend = string.Empty;
 
-    public static string DownloadDirectory { get; } =
+    public static string DownloadDirectory { get; set; } =
         Path.Combine(
             Environment.GetFolderPath(
                 Environment.SpecialFolder.UserProfile),
