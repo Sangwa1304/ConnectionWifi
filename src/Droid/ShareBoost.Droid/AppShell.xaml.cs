@@ -1,10 +1,15 @@
-﻿namespace ShareBoost.Droid
+namespace ShareBoost.Droid;
+
+public partial class AppShell : Shell
 {
-    public partial class AppShell : Shell
+    public AppShell(MainPage mainPage)
     {
-        public AppShell()
+        InitializeComponent();
+        Items.Add(new ShellContent
         {
-            InitializeComponent();
-        }
+            Title = "Partage",
+            Route = "share",
+            Content = mainPage
+        });
     }
 }
