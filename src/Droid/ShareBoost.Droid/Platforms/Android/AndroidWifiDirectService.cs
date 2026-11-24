@@ -52,10 +52,20 @@ public sealed class AndroidWifiDirectService : IDisposable
         _receiver = new P2pReceiver(this);
     }
 
-    public Task<bool> InitializeAsync(CancellationToken cancellationToken = default)
+    public async Task<bool> InitializeAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         cancellationToken.ThrowIfCancellationRequested();
+
+        var permission = await Permissions.CheckStatusAsync<WifiDirectPermission>();
+        if (permission != PermissionStatus.Granted)
+            permission = await Permissions.RequestAsync<WifiDirectPermission>();
+
+        if (permission != PermissionStatus.Granted)
+        {
+            ReportError("L'autorisation Android « Appareils à proximité » (ou localisation sur Android 12 et antérieur) est nécessaire pour Wi-Fi Direct.");
+            return false;
+        }
 
         if (!_receiverRegistered)
         {
@@ -251,11 +261,13 @@ public sealed class AndroidWifiDirectService : IDisposable
                 address,
                 info.GroupFormed);
 
+            var wasConnected = Status == AndroidWifiDirectStatus.Connected;
             SetStatus(AndroidWifiDirectStatus.Connected);
             lock (_sync)
                 _connectionRequest?.TrySetResult(connection);
 
-            ConnectionEstablished?.Invoke(this, connection);
+            if (!wasConnected)
+                ConnectionEstablished?.Invoke(this, connection);
         }));
     }
 
@@ -360,3 +372,13 @@ public enum AndroidWifiDirectStatus
 public sealed record AndroidWifiDirectPeer(string Address, string Name, WifiP2pDeviceStatus Status);
 
 public sealed record AndroidWifiDirectConnection(bool IsGroupOwner, string GroupOwnerAddress, bool GroupFormed);
+
+
+/// <summary>Runtime permission required by Android's Wi-Fi Direct discovery APIs.</summary>
+public sealed class WifiDirectPermission : Permissions.BasePlatformPermission
+{
+    protected override string[] RequiredPermissions =>
+        Build.VERSION.SdkInt >= BuildVersionCodes.Tiramisu
+            ? [Android.Manifest.Permission.NearbyWifiDevices]
+            : [Android.Manifest.Permission.AccessFineLocation];
+}
