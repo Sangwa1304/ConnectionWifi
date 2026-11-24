@@ -62,7 +62,7 @@
                                         </Border>
                                         <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
                                             <Label Text="{Binding Name}" FontAttributes="Bold" TextColor="{AppThemeBinding Light=#0F172A, Dark=White}" />
-                                            <Label Text="{Binding Address}" FontSize="11" TextColor="#64748B" />
+                                            <Label Text="{Binding Id}" FontSize="11" TextColor="#64748B" />
                                         </VerticalStackLayout>
                                         <Button Grid.Column="2" Text="Connecter" Command="{Binding Source={RelativeSource AncestorType={x:Type ContentPage}}, Path=BindingContext.ConnectCommand}" CommandParameter="{Binding}" VerticalOptions="Center" />
                                     </Grid>
@@ -105,8 +105,10 @@
                         <Label Text="{Binding ConnectionRole}" FontSize="13" TextColor="#2563EB" />
                         <Label Text="{Binding GroupOwnerAddress}" FontSize="12" TextColor="#64748B" />
                         <ProgressBar Progress="{Binding TransferProgress}" ProgressColor="#2563EB" />
-                        <Label Text="Le canal TCP et le protocole de consentement de réception doivent être alignés avec Windows avant d'activer l'envoi. L'application ne simule aucun transfert." FontSize="12" TextColor="#B45309" />
-                        <Button Text="Envoyer les fichiers" Command="{Binding SendCommand}" IsEnabled="False" BackgroundColor="#CBD5E1" TextColor="#475569" />
+                        <Label Text="{Binding TransferStatus}" FontSize="12" TextColor="#64748B" />
+                        <Label Text="Les deux canaux TCP réutilisent le protocole existant de Windows. Toute réception entrante doit être acceptée explicitement." FontSize="12" TextColor="#64748B" />
+                        <Button Text="Envoyer les fichiers" Command="{Binding SendCommand}" IsEnabled="{Binding CanSend}" BackgroundColor="#2563EB" TextColor="White" />
+                        <Button Text="Annuler le transfert" Command="{Binding CancelTransferCommand}" />
                         <Button Text="Déconnecter" Command="{Binding DisconnectCommand}" />
                     </VerticalStackLayout>
                 </Border>
