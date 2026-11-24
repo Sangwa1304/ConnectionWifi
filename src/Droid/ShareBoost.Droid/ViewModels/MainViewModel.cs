@@ -305,13 +305,26 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private async Task OpenReceivedFileAsync(TransferFileItem? item)
     {
         if (item is null || !File.Exists(item.LocalPath)) return;
-        await Launcher.Default.OpenAsync(new OpenFileRequest(item.Name, new ReadOnlyFile(item.LocalPath)));
+        var sharePath = await StageForNativeSharingAsync(item);
+        await Launcher.Default.OpenAsync(new OpenFileRequest(item.Name, new ReadOnlyFile(sharePath)));
     }
 
     private async Task ShareReceivedFileAsync(TransferFileItem? item)
     {
         if (item is null || !File.Exists(item.LocalPath)) return;
-        await Share.Default.RequestAsync(new ShareFileRequest($"Partager {item.Name}", new ShareFile(item.LocalPath)));
+        var sharePath = await StageForNativeSharingAsync(item);
+        await Share.Default.RequestAsync(new ShareFileRequest($"Partager {item.Name}", new ShareFile(sharePath)));
+    }
+
+    private static async Task<string> StageForNativeSharingAsync(TransferFileItem item)
+    {
+        var directory = Path.Combine(FileSystem.CacheDirectory, "ShareBoostShare");
+        Directory.CreateDirectory(directory);
+        var destination = Path.Combine(directory, $"{Guid.NewGuid():N}_{Path.GetFileName(item.Name)}");
+        await using var source = File.OpenRead(item.LocalPath);
+        await using var target = File.Create(destination);
+        await source.CopyToAsync(target);
+        return destination;
     }
 
     private void RefreshReceivedFiles()
