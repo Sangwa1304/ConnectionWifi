@@ -390,7 +390,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             Status = e.Status switch
             {
                 WifiDirectStatus.Connected => "Connecté",
-                WifiDirectStatus.Disconnected => "Déconnecté",
+                WifiDirectStatus.Disconnected => IsPublishing ? "Publié — en attente d'un appareil" : "Déconnecté",
                 WifiDirectStatus.Aborded => "Connexion interrompue",
                 WifiDirectStatus.NoArdwareSupported => "Matériel non pris en charge",
                 _ => "Initialisation"
